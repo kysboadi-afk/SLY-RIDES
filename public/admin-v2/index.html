@@ -1214,6 +1214,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         Bookings
         <span class="nav-badge" id="pending-badge" style="display:none">0</span>
+        <span class="nav-badge" id="ext-pay-badge" style="display:none;background:var(--warning);" title="Extension payment pending">💳</span>
       </a>
       <a class="nav-item" data-page="bookings-raw" href="#" onclick="navigate('bookings-raw');return false;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h8M4 18h8"/><rect x="14" y="13" width="8" height="8" rx="1"/></svg>
@@ -1743,6 +1744,13 @@
                 <div class="form-hint">Based on vehicle &amp; dates</div>
               </div>
               <div class="form-group">
+                <label class="form-label">Payment Status</label>
+                <select class="form-select" id="mb-payment-status" onchange="onManualPaymentStatusChange()">
+                  <option value="paid">Paid</option>
+                  <option value="unpaid">Unpaid – renter pays later</option>
+                </select>
+              </div>
+              <div class="form-group" id="mb-amount-paid-group">
                 <label class="form-label">Amount Paid (Override)</label>
                 <input type="number" class="form-input" id="mb-amount-paid" min="0" step="0.01" placeholder="Leave blank to use auto-price">
               </div>
@@ -6557,6 +6565,13 @@ function loadBookings() {
         if (pendingLf > 0) { lfBadge.style.display = ''; lfBadge.textContent = pendingLf; }
         else { lfBadge.style.display = 'none'; }
       }
+      // Update the extension payment pending badge
+      const extPayBadge = document.getElementById('ext-pay-badge');
+      if (extPayBadge) {
+        const extPayCount = normalizedBookings.filter((b) => b.extensionPaymentPending).length;
+        if (extPayCount > 0) { extPayBadge.style.display = ''; extPayBadge.textContent = extPayCount; }
+        else { extPayBadge.style.display = 'none'; }
+      }
       renderBookings();
     })
     .catch((err) => {
@@ -6672,6 +6687,7 @@ function applyBookingFilters() {
       </td>
       <td>${bookingStatusBadge(b, derived)}
         ${b.lateFeeStatus && b.lateFeeStatus !== 'dismissed' && (b.lateFeeStatus === 'paid' || b.lateFeeStatus === 'failed' || (b.status !== 'completed_rental' && b.status !== 'cancelled_rental')) ? `<div style="margin-top:3px;"><span class="badge" style="background:rgba(249,115,22,0.12);color:#c2410c;font-size:10px;">⏰ Late fee${b.lateFeeAmount != null ? ' $' + formatMoney(b.lateFeeAmount) : ''}${b.lateFeeStatus === 'paid' ? ' ✓ paid' : b.lateFeeStatus === 'approved' ? ' approved' : b.lateFeeStatus === 'failed' ? ' failed' : ' pending'}</span></div>` : ''}
+        ${b.extensionPaymentPending ? `<div style="margin-top:3px;"><span class="badge" style="background:rgba(217,119,6,0.15);color:#92400e;font-size:10px;">💳 Ext pay pending${b.pendingExtensionRemaining != null ? ' $' + formatMoney(b.pendingExtensionRemaining) : ''}</span></div>` : ''}
       </td>
       <td>
         <div class="td-actions">
@@ -7036,7 +7052,7 @@ function viewBooking(bookingId, vehicleId) {
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Email</div><div>${esc(b.email || '–')}${b.email ? ` <a href="mailto:${esc(b.email)}" style="color:var(--primary);text-decoration:none;">✉️</a>` : ''}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Pickup Date</div><div>${esc(b.pickupDate || '–')} ${esc(fmt12h(b.pickupTime || ''))}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Return Date</div><div>${esc(b.returnDate || '–')} ${esc(fmt12h(b.returnTime || ''))}</div></div>
-      <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Status</div><div>${bookingStatusBadge(b, derived)}</div></div>
+      <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Status</div><div>${bookingStatusBadge(b, derived)}${b.extensionPaymentPending ? ' <span class="badge" style="background:rgba(217,119,6,0.15);color:#92400e;font-size:10px;">💳 Ext Pay Pending</span>' : ''}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Payment Method</div><div><span class="badge badge-gray">${esc((b.paymentMethod || 'stripe').toUpperCase())}</span></div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Gross Amount</div><div style="font-weight:700;font-size:16px;">$${formatMoney(b.amountGross != null ? b.amountGross : (b.totalPrice || 0))}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Stripe Fee</div><div>${b.stripeFee != null ? '$' + formatMoney(b.stripeFee) : '<span style="color:var(--text-sub);">—</span>'}</div></div>
@@ -7059,6 +7075,18 @@ function viewBooking(bookingId, vehicleId) {
         <button class="btn btn-secondary btn-sm" onclick="closeModal('booking-detail-modal');openLateFeeWaiveModal('${esc(actionBookingId)}',${parseFloat(b.lateFeeAmount) || 0})">🚫 Waive Fee</button>
         <button class="btn btn-danger btn-sm" onclick="closeModal('booking-detail-modal');dismissLateFee('${esc(actionBookingId)}',null)">✗ Dismiss</button>
       </div>` : ''}
+    </div>
+    ` : ''}
+    ${b.extensionPaymentPending ? `
+    <div style="margin-top:14px;padding:12px;background:#fffbeb;border-radius:8px;border:2px solid #d97706;">
+      <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:8px;">💳 Extension Payment Pending</div>
+      <div style="font-size:12px;color:#78350f;margin-bottom:10px;">Renter has requested an extension but payment has <strong>not yet cleared</strong>. Vehicle is blocked and overdue/late-fee logic remains active until payment is confirmed.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:13px;margin-bottom:8px;">
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">New Return Date</span><strong>${b.pendingExtensionReturnDate ? esc(b.pendingExtensionReturnDate) + (b.pendingExtensionReturnTime ? ' ' + esc(fmt12h(b.pendingExtensionReturnTime)) : '') : '<span style="color:var(--text-sub);">—</span>'}</strong></div>
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">Extension Total</span><strong style="color:#92400e;">${b.pendingExtensionAmount != null ? '$' + formatMoney(b.pendingExtensionAmount) : '—'}</strong></div>
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">Still Owed</span><strong style="color:var(--danger);">${b.pendingExtensionRemaining != null ? '$' + formatMoney(b.pendingExtensionRemaining) : (b.pendingExtensionAmount != null ? '$' + formatMoney(b.pendingExtensionAmount) : '—')}</strong></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-sub);">Once payment is received via Stripe, the booking dates will update automatically and the vehicle will remain unavailable until the renter physically returns it.</div>
     </div>
     ` : ''}
     <!-- Customer Insight panel -->
@@ -7799,9 +7827,19 @@ async function submitManualBooking(e) {
   const pickupTimeRaw = document.getElementById('mb-pickup-time').value;
   const returnTimeRaw = document.getElementById('mb-return-time').value;
   const autoText   = document.getElementById('mb-auto-price').textContent;
-  const overrideAmount = parseFloat(document.getElementById('mb-amount-paid').value);
   const autoAmount = autoText !== '–' ? parseFloat(autoText.replace(/\$/g, '').replace(/,/g, '')) : 0;
-  const amountPaid = !isNaN(overrideAmount) && overrideAmount >= 0 ? overrideAmount : autoAmount;
+  const paymentStatus = document.getElementById('mb-payment-status').value;
+  const isUnpaid = paymentStatus === 'unpaid';
+
+  // When booking is marked unpaid, ignore any amount-paid entry; the renter
+  // will pay the full balance later through manage-booking.
+  let amountPaid;
+  if (isUnpaid) {
+    amountPaid = 0;
+  } else {
+    const overrideAmount = parseFloat(document.getElementById('mb-amount-paid').value);
+    amountPaid = !isNaN(overrideAmount) && overrideAmount >= 0 ? overrideAmount : autoAmount;
+  }
 
   const formatTime = (val) => {
     if (!val) return '';
@@ -7831,8 +7869,11 @@ async function submitManualBooking(e) {
       returnDate,
       returnTime:     formatTime(returnTimeRaw),
       amountPaid,
+      // Always send the full auto-calculated price as totalPrice so manage-booking
+      // knows the outstanding balance when the booking is unpaid.
       totalPrice:     autoAmount || amountPaid,
       paymentMethod:  document.getElementById('mb-payment-method').value,
+      paymentStatus,
       notes:          document.getElementById('mb-notes').value.trim(),
     });
 
@@ -7845,6 +7886,20 @@ async function submitManualBooking(e) {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 13l4 4L19 7"/></svg> Save Booking';
+  }
+}
+
+function onManualPaymentStatusChange() {
+  const isUnpaid = document.getElementById('mb-payment-status').value === 'unpaid';
+  const amountGroup = document.getElementById('mb-amount-paid-group');
+  const amountInput = document.getElementById('mb-amount-paid');
+  if (isUnpaid) {
+    amountGroup.style.opacity = '0.4';
+    amountGroup.style.pointerEvents = 'none';
+    amountInput.value = '';
+  } else {
+    amountGroup.style.opacity = '';
+    amountGroup.style.pointerEvents = '';
   }
 }
 
@@ -16256,6 +16311,219 @@ async function deletePaymentPlan(planId) {
     loadPaymentPlans();
   } catch (err) {
     showToast('Failed to delete plan: ' + err.message, 'error');
+  }
+}
+
+// ── Balance Ledger page ────────────────────────────────────────────────────
+let currentLedgerBookingId = null;
+let currentLedgerRemainingBalance = 0;
+
+function initBalanceLedgerPage() {
+  const input = document.getElementById('bl-booking-search');
+  if (input) input.focus();
+}
+
+async function loadBalanceLedger() {
+  const input = document.getElementById('bl-booking-search');
+  const bookingId = (input ? input.value : '').trim();
+  if (!bookingId) { showToast('Enter a Booking ID first.', 'error'); return; }
+
+  const loading    = document.getElementById('bl-loading');
+  const tableWrap  = document.getElementById('bl-table-wrap');
+  const emptyEl    = document.getElementById('bl-empty');
+  const placeholder = document.getElementById('bl-placeholder');
+  const summaryRow = document.getElementById('bl-summary-row');
+  const createBtn  = document.getElementById('bl-create-plan-btn');
+
+  if (loading)    loading.style.display    = '';
+  if (tableWrap)  tableWrap.style.display  = 'none';
+  if (emptyEl)    emptyEl.style.display    = 'none';
+  if (placeholder) placeholder.style.display = 'none';
+  if (summaryRow) summaryRow.style.display = 'none';
+  if (createBtn)  createBtn.style.display  = 'none';
+
+  try {
+    const [summaryData, historyData] = await Promise.all([
+      apiPost('/api/renter-balance-ledger', { secret: adminSessionToken, action: 'summary', booking_id: bookingId }),
+      apiPost('/api/renter-balance-ledger', { secret: adminSessionToken, action: 'history', booking_id: bookingId }),
+    ]);
+
+    currentLedgerBookingId = bookingId;
+    const summary = summaryData.summary || {};
+    const transactions = Array.isArray(historyData.transactions) ? historyData.transactions : [];
+    const remaining = Number(summary.remaining_balance || 0);
+    currentLedgerRemainingBalance = remaining;
+
+    // Update summary cards
+    const fmt = (v) => '$' + Number(v || 0).toFixed(2);
+    const el = (id) => document.getElementById(id);
+    if (el('bl-total-charges')) el('bl-total-charges').textContent = fmt(summary.total_charges);
+    if (el('bl-total-paid'))    el('bl-total-paid').textContent    = fmt(summary.total_paid);
+    if (el('bl-total-waived'))  el('bl-total-waived').textContent  = fmt(summary.total_waived);
+    if (el('bl-remaining'))     el('bl-remaining').textContent     = fmt(remaining);
+    if (summaryRow) { summaryRow.style.display = 'flex'; }
+    if (createBtn)  { createBtn.style.display = remaining > 0 ? '' : 'none'; }
+
+    // Render table
+    const tbody = document.getElementById('bl-tbody');
+    if (tbody) {
+      if (transactions.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+      } else {
+        tbody.innerHTML = transactions.map((tx) => {
+          const date = tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—';
+          const typeLabel = String(tx.transaction_type || '').replace(/_/g, ' ');
+          const direction = tx.direction || '—';
+          const amount = '$' + Number(tx.amount || 0).toFixed(2);
+          const running = tx.running_balance != null ? '$' + Number(tx.running_balance).toFixed(2) : '—';
+          const notes = esc(tx.notes || '');
+          const createdBy = esc(tx.created_by || '');
+          const dueDate = tx.due_date ? String(tx.due_date).slice(0, 10) : '—';
+          const dirClass = direction === 'credit' ? 'color:var(--success)' : 'color:var(--danger)';
+          return `<tr>
+            <td>${esc(date)}</td>
+            <td style="text-transform:capitalize;">${esc(typeLabel)}</td>
+            <td style="${dirClass};font-weight:600;text-transform:capitalize;">${esc(direction)}</td>
+            <td style="font-family:monospace;">${esc(amount)}</td>
+            <td style="font-family:monospace;">${esc(running)}</td>
+            <td style="max-width:260px;white-space:normal;">${notes}</td>
+            <td>${createdBy}</td>
+            <td>${esc(dueDate)}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="editLedgerEntry(${JSON.stringify(tx)})">Edit</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="deleteLedgerEntry('${esc(tx.id || '')}')">Del</button>
+            </td>
+          </tr>`;
+        }).join('');
+        if (tableWrap) tableWrap.style.display = '';
+      }
+    }
+  } catch (err) {
+    showToast('Failed to load ledger: ' + err.message, 'error');
+    if (placeholder) placeholder.style.display = '';
+    currentLedgerBookingId = null;
+  } finally {
+    if (loading) loading.style.display = 'none';
+  }
+}
+
+function openAddChargeModal() {
+  const bookingInput = document.getElementById('ac-booking-id');
+  if (bookingInput) bookingInput.value = currentLedgerBookingId || '';
+  const typeEl = document.getElementById('ac-type');
+  if (typeEl) typeEl.value = '';
+  const amountEl = document.getElementById('ac-amount');
+  if (amountEl) amountEl.value = '';
+  const dueDateEl = document.getElementById('ac-due-date');
+  if (dueDateEl) dueDateEl.value = '';
+  const notesEl = document.getElementById('ac-notes');
+  if (notesEl) notesEl.value = '';
+  const btn = document.getElementById('ac-submit-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Add Charge'; }
+  openModal('add-charge-modal');
+}
+
+async function saveCharge() {
+  const bookingId = (document.getElementById('ac-booking-id')?.value || '').trim();
+  const type      = (document.getElementById('ac-type')?.value || '').trim();
+  const amount    = parseFloat(document.getElementById('ac-amount')?.value || '0');
+  const dueDate   = (document.getElementById('ac-due-date')?.value || '').trim() || null;
+  const notes     = (document.getElementById('ac-notes')?.value || '').trim() || null;
+
+  if (!bookingId) { showToast('Booking ID is required.', 'error'); return; }
+  if (!type)      { showToast('Category is required.', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Amount must be a positive number.', 'error'); return; }
+
+  const btn = document.getElementById('ac-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'add_charge',
+      booking_id: bookingId,
+      transaction_type: type,
+      amount,
+      due_date: dueDate,
+      notes,
+      created_by: 'admin',
+    });
+    closeModal('add-charge-modal');
+    showToast('Charge added to ledger.', 'success');
+    currentLedgerBookingId = bookingId;
+    const input = document.getElementById('bl-booking-search');
+    if (input) input.value = bookingId;
+    await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to add charge: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add Charge'; }
+  }
+}
+
+function sendPaymentLinkFromLedger() {
+  if (!currentLedgerBookingId) { showToast('Load a booking ledger first.', 'error'); return; }
+  sendPaymentLinkForBooking(currentLedgerBookingId, { sendEmail: true });
+}
+
+function editLedgerEntry(tx) {
+  if (!tx || !tx.id) { showToast('Cannot edit this entry.', 'error'); return; }
+  const el = (id) => document.getElementById(id);
+  if (el('el-id'))       el('el-id').value       = tx.id;
+  if (el('el-type'))     el('el-type').value      = tx.transaction_type || '';
+  if (el('el-amount'))   el('el-amount').value    = Number(tx.amount || 0).toFixed(2);
+  if (el('el-due-date')) el('el-due-date').value  = tx.due_date ? String(tx.due_date).slice(0, 10) : '';
+  if (el('el-notes'))    el('el-notes').value     = tx.notes || '';
+  const btn = document.getElementById('el-submit-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  openModal('edit-ledger-modal');
+}
+
+async function saveEditLedger() {
+  const id      = (document.getElementById('el-id')?.value || '').trim();
+  const type    = (document.getElementById('el-type')?.value || '').trim();
+  const amount  = parseFloat(document.getElementById('el-amount')?.value || '0');
+  const dueDate = (document.getElementById('el-due-date')?.value || '').trim() || null;
+  const notes   = (document.getElementById('el-notes')?.value || '').trim() || null;
+
+  if (!id)     { showToast('Entry ID missing.', 'error'); return; }
+  if (!type)   { showToast('Category is required.', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Amount must be a positive number.', 'error'); return; }
+
+  const btn = document.getElementById('el-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'update_transaction',
+      id,
+      transaction_type: type,
+      amount,
+      due_date: dueDate,
+      notes,
+    });
+    closeModal('edit-ledger-modal');
+    showToast('Ledger entry updated.', 'success');
+    if (currentLedgerBookingId) await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to update entry: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  }
+}
+
+async function deleteLedgerEntry(id) {
+  if (!id) { showToast('Entry ID missing.', 'error'); return; }
+  if (!confirm('Delete this ledger entry? This cannot be undone.')) return;
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'delete_transaction',
+      id,
+    });
+    showToast('Ledger entry deleted.', 'success');
+    if (currentLedgerBookingId) await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to delete entry: ' + err.message, 'error');
   }
 }
 </script>
