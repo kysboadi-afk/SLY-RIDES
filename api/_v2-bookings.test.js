@@ -401,68 +401,6 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
         };
       }
 
-      function createResendConfirmationSupabaseMock({ bookings = [], pendingDocs = [] } = {}) {
-        const bookingRows = bookings.map((row) => ({ ...row }));
-        const pendingRows = pendingDocs.map((row) => ({ ...row }));
-
-        return {
-          storage: {
-            from(bucket) {
-              if (bucket !== "rental-agreements") {
-                throw new Error(`Unexpected storage bucket: ${bucket}`);
-              }
-              return {
-                async download(path) {
-                  return { data: new Blob([`pdf:${path}`], { type: "application/pdf" }), error: null };
-                },
-                async upload() {
-                  return { error: null };
-                },
-              };
-            },
-          },
-          from(table) {
-            if (table === "bookings") {
-              const filters = [];
-              return {
-                select() { return this; },
-                eq(column, value) {
-                  filters.push((row) => row[column] === value);
-                  return this;
-                },
-                async maybeSingle() {
-                  const match = bookingRows.find((row) => filters.every((fn) => fn(row)));
-                  return { data: match || null, error: null };
-                },
-              };
-            }
-
-            if (table === "pending_booking_docs") {
-              const filters = [];
-              return {
-                select() { return this; },
-                eq(column, value) {
-                  filters.push((row) => row[column] === value);
-                  return this;
-                },
-                async maybeSingle() {
-                  const match = pendingRows.find((row) => filters.every((fn) => fn(row)));
-                  return { data: match || null, error: null };
-                },
-                async upsert(row) {
-                  const idx = pendingRows.findIndex((item) => item.booking_id === row.booking_id);
-                  if (idx >= 0) pendingRows[idx] = { ...pendingRows[idx], ...row };
-                  else pendingRows.push({ ...row });
-                  return { error: null };
-                },
-              };
-            }
-
-            throw new Error(`Unexpected table: ${table}`);
-          },
-        };
-      }
-
       if (table === "sms_logs") {
         const filters = {};
         return {
@@ -495,6 +433,68 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
         return {
           async insert(row) {
             smsDeliveryLogs.push({ ...row, id: smsDeliveryLogs.length + 1 });
+            return { error: null };
+          },
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+}
+
+function createResendConfirmationSupabaseMock({ bookings = [], pendingDocs = [] } = {}) {
+  const bookingRows = bookings.map((row) => ({ ...row }));
+  const pendingRows = pendingDocs.map((row) => ({ ...row }));
+
+  return {
+    storage: {
+      from(bucket) {
+        if (bucket !== "rental-agreements") {
+          throw new Error(`Unexpected storage bucket: ${bucket}`);
+        }
+        return {
+          async download(path) {
+            return { data: new Blob([`pdf:${path}`], { type: "application/pdf" }), error: null };
+          },
+          async upload() {
+            return { error: null };
+          },
+        };
+      },
+    },
+    from(table) {
+      if (table === "bookings") {
+        const filters = [];
+        return {
+          select() { return this; },
+          eq(column, value) {
+            filters.push((row) => row[column] === value);
+            return this;
+          },
+          async maybeSingle() {
+            const match = bookingRows.find((row) => filters.every((fn) => fn(row)));
+            return { data: match || null, error: null };
+          },
+        };
+      }
+
+      if (table === "pending_booking_docs") {
+        const filters = [];
+        return {
+          select() { return this; },
+          eq(column, value) {
+            filters.push((row) => row[column] === value);
+            return this;
+          },
+          async maybeSingle() {
+            const match = pendingRows.find((row) => filters.every((fn) => fn(row)));
+            return { data: match || null, error: null };
+          },
+          async upsert(row) {
+            const idx = pendingRows.findIndex((item) => item.booking_id === row.booking_id);
+            if (idx >= 0) pendingRows[idx] = { ...pendingRows[idx], ...row };
+            else pendingRows.push({ ...row });
             return { error: null };
           },
         };
