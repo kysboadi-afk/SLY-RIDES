@@ -8,7 +8,7 @@
 --   Values: NULL (no action) | 'pending' | 'in_progress' | 'resolved'
 --
 -- These columns are set by the confirm_vehicle_action AI tool and displayed
--- as badges in the admin dashboard.  Slingshots and cars both carry these
+-- as badges in the admin dashboard.  Vehicles and cars both carry these
 -- columns; the vehicle-type rules only restrict mileage/maintenance logic.
 --
 -- Safe to re-run: uses ADD COLUMN IF NOT EXISTS; constraint blocks use

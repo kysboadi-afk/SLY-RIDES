@@ -23,16 +23,16 @@
 
 UPDATE vehicles
 SET
-  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Slingshot R'::text)),
+  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Vehicle R'::text)),
   updated_at = now()
-WHERE vehicle_id = 'slingshot'
+WHERE vehicle_id = 'vehicle'
   AND (data->>'vehicle_name' IS NULL OR data->>'vehicle_name' = '');
 
 UPDATE vehicles
 SET
-  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Slingshot R (2)'::text)),
+  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Vehicle R (2)'::text)),
   updated_at = now()
-WHERE vehicle_id = 'slingshot2'
+WHERE vehicle_id = 'vehicle2'
   AND (data->>'vehicle_name' IS NULL OR data->>'vehicle_name' = '');
 
 UPDATE vehicles

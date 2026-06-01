@@ -1,4 +1,4 @@
--- Migration 0159: add slingshot inquiry/agreement/manual-payment lifecycle support
+-- Migration 0159: add vehicle inquiry/agreement/manual-payment lifecycle support
 
 DO $$ BEGIN
   ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check;
@@ -41,5 +41,5 @@ ALTER TABLE pending_booking_docs
   ADD COLUMN IF NOT EXISTS user_agent text;
 
 ALTER TABLE bookings
-  ADD COLUMN IF NOT EXISTS slingshot_payment_method text,
-  ADD COLUMN IF NOT EXISTS slingshot_payment_notes text;
+  ADD COLUMN IF NOT EXISTS vehicle_payment_method text,
+  ADD COLUMN IF NOT EXISTS vehicle_payment_notes text;

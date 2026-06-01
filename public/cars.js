@@ -63,6 +63,12 @@ function normalizeVehicleImageUrl(value) {
   return "/" + url.replace(/^(\.\.\/)+/, "");
 }
 
+function isRemovedVehicleVehicle(v) {
+  const vehicleId = String(v?.vehicle_id || v?.id || "").toLowerCase();
+  const vehicleName = String(v?.vehicle_name || v?.name || "").toLowerCase();
+  return vehicleId.includes("vehicle") || vehicleName.includes("vehicle");
+}
+
 // ─── Card builders ────────────────────────────────────────────────────────────
 
 function buildEconomyCard(v, pricing) {
@@ -127,7 +133,7 @@ function renderFleetEmptyState(grid, vehicles, fleetStatus) {
   const preferredVehicleOptions = [
     `<option value="">Any available vehicle</option>`,
     ...(Array.isArray(vehicles) ? vehicles : [])
-      .filter((v) => String(v.status || "active") === "active" && String(v.category || "").toLowerCase() === "car")
+      .filter((v) => String(v.status || "active") === "active" && String(v.category || "").toLowerCase() === "car" && !isRemovedVehicleVehicle(v))
       .map((v) => `<option value="${esc(v.vehicle_id)}">${esc(v.vehicle_name || v.vehicle_id)}</option>`),
   ].join("");
   grid.innerHTML = `<div class="fleet-empty-state">
@@ -402,6 +408,7 @@ async function loadFleet() {
 
   const activeAndAvailable = (Array.isArray(vehicles) ? vehicles : []).filter(v => {
     if (v.status && v.status !== "active") return false;
+    if (isRemovedVehicleVehicle(v)) return false;
     const cat = (v.category || "").toLowerCase();
     if (cat !== "car") {
       if (!cat) console.error("[cars.js] Vehicle skipped — missing category:", v.vehicle_id);

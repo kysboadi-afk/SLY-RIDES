@@ -278,11 +278,17 @@ function normalizeVehicleLookupKey(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function isRemovedVehicleVehicle(v) {
+  const vehicleId = String(v?.vehicle_id || v?.id || "").toLowerCase();
+  const vehicleName = String(v?.vehicle_name || v?.name || "").toLowerCase();
+  return vehicleId.includes("vehicle") || vehicleName.includes("vehicle");
+}
+
 function resolveVehicleFromInventory(vehicles, requestedVehicleRef) {
   const requestedRaw = String(requestedVehicleRef || "").trim();
   if (!requestedRaw || !Array.isArray(vehicles)) return null;
   const requestedCanonicalLookup = canonicalVehicleLookupKey(requestedRaw);
-  const candidates = vehicles.filter(Boolean);
+  const candidates = vehicles.filter((v) => Boolean(v) && !isRemovedVehicleVehicle(v));
 
   const exact = candidates.find((v) => String(v.vehicle_id || v.id || "").trim() === requestedRaw);
   if (exact) return { vehicle: exact, vehicleId: String(exact.vehicle_id || exact.id || "").trim() };

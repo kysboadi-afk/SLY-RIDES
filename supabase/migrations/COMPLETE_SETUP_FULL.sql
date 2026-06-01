@@ -37,8 +37,8 @@ create index if not exists vehicles_updated_at_idx on vehicles (updated_at);
 
 -- Seed the four known fleet vehicles (safe to re-run; ignores conflicts)
 insert into vehicles (vehicle_id, data) values
-  ('slingshot',  '{"vehicle_id":"slingshot",  "vehicle_name":"Slingshot R",     "type":"slingshot","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/car2.jpg"}'::jsonb),
-  ('slingshot2', '{"vehicle_id":"slingshot2", "vehicle_name":"Slingshot R (2)", "type":"slingshot","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_1749.jpeg"}'::jsonb),
+  ('vehicle',  '{"vehicle_id":"vehicle",  "vehicle_name":"Vehicle R",     "type":"vehicle","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/car2.jpg"}'::jsonb),
+  ('vehicle2', '{"vehicle_id":"vehicle2", "vehicle_name":"Vehicle R (2)", "type":"vehicle","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_1749.jpeg"}'::jsonb),
   ('camry',      '{"vehicle_id":"camry",      "vehicle_name":"Camry 2012",      "type":"economy",  "vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_0046.png"}'::jsonb),
   ('camry2013',  '{"vehicle_id":"camry2013",  "vehicle_name":"Camry 2013 SE",   "type":"economy",  "vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_5144.png"}'::jsonb)
 on conflict (vehicle_id) do nothing;
@@ -58,8 +58,8 @@ where vehicle_id in ('vehicle_1', 'vehicle_2', 'vehicle_3', 'vehicle_4');
 -- The WHERE clause prevents overwriting data that was subsequently customised
 -- via the admin panel (only empty/null data gets replaced).
 insert into vehicles (vehicle_id, data) values
-  ('slingshot',  '{"vehicle_id":"slingshot",  "vehicle_name":"Slingshot R",     "type":"slingshot","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/car2.jpg"}'::jsonb),
-  ('slingshot2', '{"vehicle_id":"slingshot2", "vehicle_name":"Slingshot R (2)", "type":"slingshot","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_1749.jpeg"}'::jsonb),
+  ('vehicle',  '{"vehicle_id":"vehicle",  "vehicle_name":"Vehicle R",     "type":"vehicle","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/car2.jpg"}'::jsonb),
+  ('vehicle2', '{"vehicle_id":"vehicle2", "vehicle_name":"Vehicle R (2)", "type":"vehicle","vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_1749.jpeg"}'::jsonb),
   ('camry',      '{"vehicle_id":"camry",      "vehicle_name":"Camry 2012",      "type":"economy",  "vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_0046.png"}'::jsonb),
   ('camry2013',  '{"vehicle_id":"camry2013",  "vehicle_name":"Camry 2013 SE",   "type":"economy",  "vehicle_year":null,"purchase_date":"","purchase_price":0,"status":"active","cover_image":"/images/IMG_5144.png"}'::jsonb)
 on conflict (vehicle_id) do update
@@ -155,13 +155,13 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Seed default settings
 INSERT INTO system_settings (key, value, description, category) VALUES
   ('la_tax_rate',                  '0.1025',             'Los Angeles combined sales tax rate',        'tax'),
-  ('slingshot_daily_rate',         '350',                'Slingshot R daily rate (USD)',               'pricing'),
+  ('vehicle_daily_rate',         '350',                'Vehicle R daily rate (USD)',               'pricing'),
   ('camry_daily_rate',             '55',                 'Camry daily rate (USD)',                     'pricing'),
   ('camry_weekly_rate',            '350',                'Camry weekly rate (USD)',                    'pricing'),
   ('camry_biweekly_rate',          '650',                'Camry bi-weekly rate (USD)',                 'pricing'),
   ('camry_monthly_rate',           '1300',               'Camry monthly rate (USD)',                   'pricing'),
-  ('slingshot_security_deposit',   '150',                'Slingshot refundable security deposit (USD)','pricing'),
-  ('slingshot_booking_deposit',    '50',                 'Slingshot non-refundable booking deposit',   'pricing'),
+  ('vehicle_security_deposit',   '150',                'Vehicle refundable security deposit (USD)','pricing'),
+  ('vehicle_booking_deposit',    '50',                 'Vehicle non-refundable booking deposit',   'pricing'),
   ('auto_block_dates_on_approve',  'true',               'Auto-block vehicle dates when booking approved', 'automation'),
   ('auto_create_revenue_on_pay',   'true',               'Auto-create revenue record when payment received', 'automation'),
   ('auto_update_customer_stats',   'true',               'Auto-update customer stats on booking events','automation'),
@@ -719,13 +719,13 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Seed default settings (idempotent)
 INSERT INTO system_settings (key, value, description, category) VALUES
   ('la_tax_rate',                  '0.1025',  'Los Angeles combined sales tax rate',             'tax'),
-  ('slingshot_daily_rate',         '350',     'Slingshot R daily rate (USD)',                    'pricing'),
+  ('vehicle_daily_rate',         '350',     'Vehicle R daily rate (USD)',                    'pricing'),
   ('camry_daily_rate',             '55',      'Camry daily rate (USD)',                          'pricing'),
   ('camry_weekly_rate',            '350',     'Camry weekly rate (USD)',                         'pricing'),
   ('camry_biweekly_rate',          '650',     'Camry bi-weekly rate (USD)',                      'pricing'),
   ('camry_monthly_rate',           '1300',    'Camry monthly rate (USD)',                        'pricing'),
-  ('slingshot_security_deposit',   '150',     'Slingshot refundable security deposit (USD)',     'pricing'),
-  ('slingshot_booking_deposit',    '50',      'Slingshot non-refundable booking deposit',        'pricing'),
+  ('vehicle_security_deposit',   '150',     'Vehicle refundable security deposit (USD)',     'pricing'),
+  ('vehicle_booking_deposit',    '50',      'Vehicle non-refundable booking deposit',        'pricing'),
   ('auto_block_dates_on_approve',  'true',    'Auto-block vehicle dates when booking approved',  'automation'),
   ('auto_create_revenue_on_pay',   'true',    'Auto-create revenue record when payment received','automation'),
   ('auto_update_customer_stats',   'true',    'Auto-update customer stats on booking events',    'automation'),
@@ -998,14 +998,14 @@ CREATE INDEX IF NOT EXISTS idx_content_blocks_active ON public.content_blocks (a
 CREATE INDEX IF NOT EXISTS idx_content_blocks_sort   ON public.content_blocks (sort_order, created_at);
 
 -- Seed starter FAQ content blocks (only if table is empty).
--- Note: the Slingshot deposit amount ($150) mentioned here matches the current
+-- Note: the Vehicle deposit amount ($150) mentioned here matches the current
 -- pricing in car.js / api/_pricing.js — update this text if pricing changes.
 INSERT INTO public.content_blocks (type, title, body, sort_order, active)
 SELECT type, title, body, sort_order, active FROM (VALUES
   ('faq', 'What is the minimum rental age?',     'The minimum age to rent is 21 years old. A valid driver''s license is required.',                              1, true),
   ('faq', 'Do you offer airport pickup?',         'Yes, we offer pickup and drop-off at major LA area airports. Please contact us to arrange.',                  2, true),
   ('faq', 'What forms of payment do you accept?', 'We accept all major credit cards via Stripe. Payments are processed securely online.',                        3, true),
-  ('faq', 'Is there a security deposit?',         'The Slingshot requires a $150 refundable security deposit collected at pickup. The Camry has no deposit.',    4, true)
+  ('faq', 'Is there a security deposit?',         'The Vehicle requires a $150 refundable security deposit collected at pickup. The Camry has no deposit.',    4, true)
 ) AS v(type, title, body, sort_order, active)
 WHERE NOT EXISTS (SELECT 1 FROM public.content_blocks);
 
@@ -1243,13 +1243,13 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 INSERT INTO system_settings (key, value, description, category) VALUES
   ('la_tax_rate',                  '0.1025',  'Los Angeles combined sales tax rate',                      'tax'),
-  ('slingshot_daily_rate',         '350',     'Slingshot R daily rate (USD)',                             'pricing'),
+  ('vehicle_daily_rate',         '350',     'Vehicle R daily rate (USD)',                             'pricing'),
   ('camry_daily_rate',             '55',      'Camry daily rate (USD)',                                   'pricing'),
   ('camry_weekly_rate',            '350',     'Camry weekly rate (USD)',                                  'pricing'),
   ('camry_biweekly_rate',          '650',     'Camry bi-weekly rate (USD)',                               'pricing'),
   ('camry_monthly_rate',           '1300',    'Camry monthly rate (USD)',                                 'pricing'),
-  ('slingshot_security_deposit',   '150',     'Slingshot refundable security deposit (USD)',              'pricing'),
-  ('slingshot_booking_deposit',    '50',      'Slingshot non-refundable booking deposit',                 'pricing'),
+  ('vehicle_security_deposit',   '150',     'Vehicle refundable security deposit (USD)',              'pricing'),
+  ('vehicle_booking_deposit',    '50',      'Vehicle non-refundable booking deposit',                 'pricing'),
   ('auto_block_dates_on_approve',  'true',    'Auto-block vehicle dates when booking approved',           'automation'),
   ('auto_create_revenue_on_pay',   'true',    'Auto-create revenue record when payment received',         'automation'),
   ('auto_update_customer_stats',   'true',    'Auto-update customer stats on booking events',             'automation'),
@@ -1298,33 +1298,33 @@ GROUP BY vehicle_id;
 -- PROBLEM
 -- -------
 -- Migration 0001 seeded vehicles with generic image paths (car1.jpg, car3.jpg)
--- that are slingshot photos rather than vehicle-specific images.
+-- that are vehicle photos rather than vehicle-specific images.
 -- Migration 0002 attempted to fix this but the ON CONFLICT ... WHERE clause
 -- only ran when data was empty/null, so existing rows were never updated.
 --
 -- WHAT THIS DOES
 -- --------------
--- Unconditionally updates cover_image for slingshot2, camry, and camry2013
+-- Unconditionally updates cover_image for vehicle2, camry, and camry2013
 -- to the correct vehicle-specific photos that exist in the /images/ directory.
--- The slingshot (primary) already has the correct image (car2.jpg) and is left
+-- The vehicle (primary) already has the correct image (car2.jpg) and is left
 -- unchanged unless it was somehow set to one of the wrong values.
 --
 -- Safe to re-run: uses WHERE guards to avoid overwriting admin-customised URLs
 -- (e.g. Supabase Storage URLs from image uploads).
 -- =============================================================================
 
--- Fix slingshot2: was seeded with /images/car3.jpg (a slingshot photo)
+-- Fix vehicle2: was seeded with /images/car3.jpg (a vehicle photo)
 UPDATE vehicles
 SET
   data       = jsonb_set(data, '{cover_image}', to_jsonb('/images/IMG_1749.jpeg'::text)),
   updated_at = now()
-WHERE vehicle_id = 'slingshot2'
+WHERE vehicle_id = 'vehicle2'
   AND (
     data->>'cover_image' IS NULL
     OR data->>'cover_image' IN ('/images/car3.jpg', 'images/car3.jpg', '/images/car2.jpg', 'images/car2.jpg')
   );
 
--- Fix camry: was seeded with /images/car1.jpg (a slingshot photo)
+-- Fix camry: was seeded with /images/car1.jpg (a vehicle photo)
 UPDATE vehicles
 SET
   data       = jsonb_set(data, '{cover_image}', to_jsonb('/images/IMG_0046.png'::text)),
@@ -1378,16 +1378,16 @@ WHERE vehicle_id = 'camry2013'
 
 UPDATE vehicles
 SET
-  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Slingshot R'::text)),
+  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Vehicle R'::text)),
   updated_at = now()
-WHERE vehicle_id = 'slingshot'
+WHERE vehicle_id = 'vehicle'
   AND (data->>'vehicle_name' IS NULL OR data->>'vehicle_name' = '');
 
 UPDATE vehicles
 SET
-  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Slingshot R (2)'::text)),
+  data       = jsonb_set(data, '{vehicle_name}', to_jsonb('Vehicle R (2)'::text)),
   updated_at = now()
-WHERE vehicle_id = 'slingshot2'
+WHERE vehicle_id = 'vehicle2'
   AND (data->>'vehicle_name' IS NULL OR data->>'vehicle_name' = '');
 
 UPDATE vehicles
@@ -1406,27 +1406,27 @@ WHERE vehicle_id = 'camry2013'
 
 
 -- ===========================================================================
--- 0013_remove_slingshot2_slingshot3.sql
+-- 0013_remove_vehicle2_vehicle3.sql
 -- ===========================================================================
--- Migration: Remove slingshot2 and slingshot3, update slingshot cover image
+-- Migration: Remove vehicle2 and vehicle3, update vehicle cover image
 -- Run this in the Supabase SQL editor or via the Supabase CLI.
 --
--- The fleet has been consolidated to a single Slingshot unit.
+-- The fleet has been consolidated to a single Vehicle unit.
 -- This removes the unused vehicle rows and updates the cover image
--- for the remaining slingshot to the newly uploaded photo.
+-- for the remaining vehicle to the newly uploaded photo.
 
--- Remove the extra Slingshot units from the vehicles table
-DELETE FROM vehicles WHERE vehicle_id IN ('slingshot2', 'slingshot3');
+-- Remove the extra Vehicle units from the vehicles table
+DELETE FROM vehicles WHERE vehicle_id IN ('vehicle2', 'vehicle3');
 
--- Update the slingshot cover image to the real uploaded photo
+-- Update the vehicle cover image to the real uploaded photo
 UPDATE vehicles
-SET data = jsonb_set(data, '{cover_image}', '"/images/slingshot.jpg"')
-WHERE vehicle_id = 'slingshot';
+SET data = jsonb_set(data, '{cover_image}', '"/images/vehicle.jpg"')
+WHERE vehicle_id = 'vehicle';
 
 -- Also set the vehicle_name to the canonical display name
 UPDATE vehicles
-SET data = jsonb_set(data, '{vehicle_name}', '"Slingshot R"')
-WHERE vehicle_id = 'slingshot';
+SET data = jsonb_set(data, '{vehicle_name}', '"Vehicle R"')
+WHERE vehicle_id = 'vehicle';
 
 
 -- ===========================================================================
@@ -1478,12 +1478,12 @@ UPDATE vehicles SET
   vehicle_name   = COALESCE(vehicle_name,   data->>'vehicle_name'),
   vehicle_type   = COALESCE(vehicle_type,   data->>'type'),
   daily_price    = COALESCE(daily_price,    CASE
-    WHEN vehicle_id IN ('slingshot','slingshot2','slingshot3') THEN 350
+    WHEN vehicle_id IN ('vehicle','vehicle2','vehicle3') THEN 350
     WHEN vehicle_id IN ('camry','camry2013')                   THEN  55
     ELSE 0
   END),
   deposit_amount = COALESCE(deposit_amount, CASE
-    WHEN vehicle_id IN ('slingshot','slingshot2','slingshot3') THEN 150
+    WHEN vehicle_id IN ('vehicle','vehicle2','vehicle3') THEN 150
     ELSE 0
   END),
   rental_status  = COALESCE(rental_status, 'available'),
@@ -2321,11 +2321,11 @@ CREATE TRIGGER bookings_status_timestamps
 -- It only overwrites a value when it does NOT already start with "images/" or
 -- "http" (i.e. it's a bare filename or unknown path), so safe to re-run.
 
--- Slingshot units (all share the same photo)
+-- Vehicle units (all share the same photo)
 UPDATE vehicles
-  SET data      = jsonb_set(data, '{cover_image}', '"images/slingshot.jpg"'::jsonb),
+  SET data      = jsonb_set(data, '{cover_image}', '"images/vehicle.jpg"'::jsonb),
       updated_at = now()
-  WHERE vehicle_id IN ('slingshot', 'slingshot2', 'slingshot3')
+  WHERE vehicle_id IN ('vehicle', 'vehicle2', 'vehicle3')
     AND NOT (
           data->>'cover_image' LIKE 'images/%'
        OR data->>'cover_image' LIKE '/images/%'
@@ -2475,7 +2475,7 @@ $$;
 -- Bouncie GPS integration.
 --
 -- Changes to vehicles table:
---   bouncie_device_id  — Bouncie IMEI (NULL for slingshots and untracked vehicles)
+--   bouncie_device_id  — Bouncie IMEI (NULL for vehicles and untracked vehicles)
 --   last_synced_at     — timestamp of the last successful Bouncie sync
 --   (mileage column already exists from COMPLETE_SETUP step 1)
 --
@@ -2564,7 +2564,7 @@ create table if not exists app_config (
 -- JSON fallback path.
 --
 -- Only applies to vehicles where bouncie_device_id IS NOT NULL.
--- Slingshots are excluded in the application layer before alert logic runs.
+-- Vehicles are excluded in the application layer before alert logic runs.
 --
 -- Safe to re-run: ADD COLUMN IF NOT EXISTS is idempotent.
 
@@ -2639,7 +2639,7 @@ alter table bookings
 --   Values: NULL (no action) | 'pending' | 'in_progress' | 'resolved'
 --
 -- These columns are set by the confirm_vehicle_action AI tool and displayed
--- as badges in the admin dashboard.  Slingshots and cars both carry these
+-- as badges in the admin dashboard.  Vehicles and cars both carry these
 -- columns; the vehicle-type rules only restrict mileage/maintenance logic.
 --
 -- Safe to re-run: uses ADD COLUMN IF NOT EXISTS; constraint blocks use
@@ -2971,17 +2971,17 @@ CREATE POLICY IF NOT EXISTS maintenance_appointments_select_authenticated
 
 
 -- ===========================================================================
--- 0032_slingshot_payment_token.sql
+-- 0032_vehicle_payment_token.sql
 -- ===========================================================================
 -- Migration 0032: Add payment_link_token column to bookings table
--- Supports the Slingshot deposit-only payment flow where renters pay a
+-- Supports the Vehicle deposit-only payment flow where renters pay a
 -- security deposit first and complete the rental payment later via a
 -- unique secure link.
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS payment_link_token text,
-  ADD COLUMN IF NOT EXISTS slingshot_payment_status text,
-  ADD COLUMN IF NOT EXISTS slingshot_booking_status  text,
+  ADD COLUMN IF NOT EXISTS vehicle_payment_status text,
+  ADD COLUMN IF NOT EXISTS vehicle_booking_status  text,
   ADD COLUMN IF NOT EXISTS rental_price              numeric(10,2),
   ADD COLUMN IF NOT EXISTS security_deposit          numeric(10,2),
   ADD COLUMN IF NOT EXISTS remaining_balance         numeric(10,2) DEFAULT 0;
@@ -3151,7 +3151,7 @@ create table if not exists bouncie_tokens (
 -- though they have a valid IMEI.  This caused them to be invisible in the
 -- GPS Tracking page and skipped during Bouncie mileage sync.
 --
--- Note: Slingshot vehicles with an IMEI are also corrected — the slingshot
+-- Note: Vehicle vehicles with an IMEI are also corrected — the vehicle
 -- exclusion is handled at the application layer, not by this flag.
 
 UPDATE vehicles
@@ -5372,8 +5372,8 @@ COMMENT ON INDEX sms_logs_dedup_idx IS
 -- Design:
 --   • Every metric is returned in three scope variants using column prefixes:
 --       total_*     — all vehicles combined
---       car_*       — vehicles with vehicle_type != 'slingshot'
---       slingshot_* — vehicles with vehicle_type  = 'slingshot'
+--       car_*       — vehicles with vehicle_type != 'vehicle'
+--       vehicle_* — vehicles with vehicle_type  = 'vehicle'
 --   • Supplemental charges (not already in revenue_records) are included via
 --     the charges_net CTE to avoid double-counting.
 --   • Booking counts use (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')
@@ -5385,7 +5385,7 @@ COMMENT ON INDEX sms_logs_dedup_idx IS
 
 CREATE OR REPLACE VIEW admin_metrics_v2 AS
 WITH
-  -- ── Vehicle type lookup (slingshot vs car) ──────────────────────────────────
+  -- ── Vehicle type lookup (vehicle vs car) ──────────────────────────────────
   vt AS (
     SELECT vehicle_id, COALESCE(vehicle_type, '') AS vehicle_type
     FROM   vehicles
@@ -5468,14 +5468,14 @@ WITH
         WHERE from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                      AS total_reconciled_count,
 
-      -- Car (vehicle_type != 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      -- Car (vehicle_type != 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN gross_amount ELSE 0 END), 0)                               AS car_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
         THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS car_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN COALESCE(stripe_net, gross_amount - COALESCE(stripe_fee, 0))
@@ -5484,27 +5484,27 @@ WITH
              END
         ELSE 0 END), 0)                                                 AS car_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type != 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
+        WHERE vehicle_type != 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                      AS car_reconciled_count,
 
-      -- Slingshot (vehicle_type = 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+      -- Vehicle (vehicle_type = 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
-        THEN gross_amount ELSE 0 END), 0)                               AS slingshot_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN gross_amount ELSE 0 END), 0)                               AS vehicle_revenue,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
-        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS slingshot_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS vehicle_stripe_fees,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN COALESCE(stripe_net, gross_amount - COALESCE(stripe_fee, 0))
                     - COALESCE(refund_amount, 0)
                ELSE gross_amount
              END
-        ELSE 0 END), 0)                                                 AS slingshot_net_revenue,
+        ELSE 0 END), 0)                                                 AS vehicle_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type = 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
-          AND NOT is_cancelled AND NOT is_no_show)                      AS slingshot_reconciled_count
+        WHERE vehicle_type = 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
+          AND NOT is_cancelled AND NOT is_no_show)                      AS vehicle_reconciled_count
     FROM fin_all
   ),
 
@@ -5512,10 +5512,10 @@ WITH
   exp AS (
     SELECT
       COALESCE(SUM(e.amount), 0)                                        AS total_expenses,
-      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'slingshot'
+      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'vehicle'
         THEN e.amount ELSE 0 END), 0)                                   AS car_expenses,
-      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'slingshot'
-        THEN e.amount ELSE 0 END), 0)                                   AS slingshot_expenses
+      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'vehicle'
+        THEN e.amount ELSE 0 END), 0)                                   AS vehicle_expenses
     FROM   expenses e
     LEFT JOIN vt ON vt.vehicle_id = e.vehicle_id
   ),
@@ -5539,44 +5539,44 @@ WITH
                                                                         AS total_pickups_today,
       -- Car
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('active', 'overdue'))                        AS car_active_rentals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
                                                                         AS car_pending_approvals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status = 'overdue')                                     AS car_overdue_count,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('active', 'overdue'))                        AS car_returns_today,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
                                                                         AS car_pickups_today,
-      -- Slingshot
+      -- Vehicle
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status IN ('active', 'overdue'))                        AS slingshot_active_rentals,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status IN ('active', 'overdue'))                        AS vehicle_active_rentals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
-                                                                        AS slingshot_pending_approvals,
+                                                                        AS vehicle_pending_approvals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status = 'overdue')                                     AS slingshot_overdue_count,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status = 'overdue')                                     AS vehicle_overdue_count,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
-          AND b.status IN ('active', 'overdue'))                        AS slingshot_returns_today,
+          AND b.status IN ('active', 'overdue'))                        AS vehicle_returns_today,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
-                                                                        AS slingshot_pickups_today
+                                                                        AS vehicle_pickups_today
     FROM   bookings b
     LEFT JOIN vt ON vt.vehicle_id = b.vehicle_id
     WHERE  b.status NOT IN ('completed')
@@ -5593,18 +5593,18 @@ WITH
           ))                                                            AS total_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND COALESCE(v.vehicle_type, '') != 'slingshot'
+          AND COALESCE(v.vehicle_type, '') != 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'overdue')
           ))                                                            AS car_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND v.vehicle_type = 'slingshot'
+          AND v.vehicle_type = 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'overdue')
-          ))                                                            AS slingshot_available_vehicles
+          ))                                                            AS vehicle_available_vehicles
     FROM vehicles v
   ),
 
@@ -5637,7 +5637,7 @@ WITH
 
   -- ── Monthly revenue data for the chart (last 12 months) ─────────────────────
   monthly AS (
-    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(slingshot_amt) AS slingshot_amt
+    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(vehicle_amt) AS vehicle_amt
     FROM (
       -- From revenue_records
       SELECT
@@ -5645,14 +5645,14 @@ WITH
         SUM(CASE WHEN NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                               AS total_amt,
-        SUM(CASE WHEN r.vehicle_type != 'slingshot'
+        SUM(CASE WHEN r.vehicle_type != 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                               AS car_amt,
-        SUM(CASE WHEN r.vehicle_type = 'slingshot'
+        SUM(CASE WHEN r.vehicle_type = 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
-          THEN r.gross_amount ELSE 0 END)                               AS slingshot_amt
+          THEN r.gross_amount ELSE 0 END)                               AS vehicle_amt
       FROM rev r
       WHERE r.pickup_date IS NOT NULL
       GROUP BY LEFT(r.pickup_date::text, 7)
@@ -5661,8 +5661,8 @@ WITH
       SELECT
         LEFT(c.charge_date::text, 7) AS mo,
         SUM(c.amount)                                                   AS total_amt,
-        SUM(CASE WHEN c.vehicle_type != 'slingshot' THEN c.amount ELSE 0 END) AS car_amt,
-        SUM(CASE WHEN c.vehicle_type  = 'slingshot' THEN c.amount ELSE 0 END) AS slingshot_amt
+        SUM(CASE WHEN c.vehicle_type != 'vehicle' THEN c.amount ELSE 0 END) AS car_amt,
+        SUM(CASE WHEN c.vehicle_type  = 'vehicle' THEN c.amount ELSE 0 END) AS vehicle_amt
       FROM charges_net c
       GROUP BY LEFT(c.charge_date::text, 7)
     ) combined
@@ -5694,17 +5694,17 @@ SELECT
                 / e.car_expenses * 100)::numeric, 2)
     ELSE NULL END                                                        AS car_operational_roi,
 
-  -- ── Financial KPIs — Slingshot ───────────────────────────────────────────
-  f.slingshot_revenue,
-  f.slingshot_stripe_fees,
-  f.slingshot_net_revenue,
-  f.slingshot_reconciled_count,
-  e.slingshot_expenses,
-  (f.slingshot_net_revenue - e.slingshot_expenses)::numeric             AS slingshot_net_profit,
-  CASE WHEN e.slingshot_expenses > 0
-    THEN ROUND(((f.slingshot_net_revenue - e.slingshot_expenses)
-                / e.slingshot_expenses * 100)::numeric, 2)
-    ELSE NULL END                                                        AS slingshot_operational_roi,
+  -- ── Financial KPIs — Vehicle ───────────────────────────────────────────
+  f.vehicle_revenue,
+  f.vehicle_stripe_fees,
+  f.vehicle_net_revenue,
+  f.vehicle_reconciled_count,
+  e.vehicle_expenses,
+  (f.vehicle_net_revenue - e.vehicle_expenses)::numeric             AS vehicle_net_profit,
+  CASE WHEN e.vehicle_expenses > 0
+    THEN ROUND(((f.vehicle_net_revenue - e.vehicle_expenses)
+                / e.vehicle_expenses * 100)::numeric, 2)
+    ELSE NULL END                                                        AS vehicle_operational_roi,
 
   -- ── Booking counts — Total ───────────────────────────────────────────────
   bk.total_active_rentals,
@@ -5720,17 +5720,17 @@ SELECT
   bk.car_returns_today,
   bk.car_pickups_today,
 
-  -- ── Booking counts — Slingshot ───────────────────────────────────────────
-  bk.slingshot_active_rentals,
-  bk.slingshot_pending_approvals,
-  bk.slingshot_overdue_count,
-  bk.slingshot_returns_today,
-  bk.slingshot_pickups_today,
+  -- ── Booking counts — Vehicle ───────────────────────────────────────────
+  bk.vehicle_active_rentals,
+  bk.vehicle_pending_approvals,
+  bk.vehicle_overdue_count,
+  bk.vehicle_returns_today,
+  bk.vehicle_pickups_today,
 
   -- ── Available vehicles ───────────────────────────────────────────────────
   av.total_available_vehicles,
   av.car_available_vehicles,
-  av.slingshot_available_vehicles,
+  av.vehicle_available_vehicles,
 
   -- ── Per-vehicle revenue JSONB (keyed by vehicle_id) ─────────────────────
   -- Used by v2-dashboard.js to populate rrByVehicle for vehicleStats computation.
@@ -5782,17 +5782,17 @@ SELECT
   (
     SELECT COALESCE(
       json_agg(
-        json_build_object('month', mo, 'amount', ROUND(slingshot_amt::numeric, 2))
+        json_build_object('month', mo, 'amount', ROUND(vehicle_amt::numeric, 2))
         ORDER BY mo
       ),
       '[]'::json
     )
     FROM (
-      SELECT mo, slingshot_amt FROM monthly
-      WHERE  slingshot_amt > 0
+      SELECT mo, vehicle_amt FROM monthly
+      WHERE  vehicle_amt > 0
       ORDER BY mo DESC LIMIT 12
     ) sub
-  )                                                                      AS slingshot_revenue_chart
+  )                                                                      AS vehicle_revenue_chart
 
 FROM fin f, exp e, bk, avail av;
 
@@ -5820,7 +5820,7 @@ FROM fin f, exp e, bk, avail av;
 
 CREATE OR REPLACE VIEW admin_metrics_v2 AS
 WITH
-  -- ── Vehicle type lookup (slingshot vs car) ──────────────────────────────────
+  -- ── Vehicle type lookup (vehicle vs car) ──────────────────────────────────
   vt AS (
     SELECT vehicle_id, COALESCE(vehicle_type, '') AS vehicle_type
     FROM   vehicles
@@ -5903,14 +5903,14 @@ WITH
         WHERE from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                     AS total_reconciled_count,
 
-      -- Car (vehicle_type != 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      -- Car (vehicle_type != 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN gross_amount ELSE 0 END), 0)                              AS car_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
         THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                  AS car_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN COALESCE(stripe_net, gross_amount - COALESCE(stripe_fee, 0))
@@ -5919,27 +5919,27 @@ WITH
              END
         ELSE 0 END), 0)                                                AS car_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type != 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
+        WHERE vehicle_type != 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                     AS car_reconciled_count,
 
-      -- Slingshot (vehicle_type = 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+      -- Vehicle (vehicle_type = 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
-        THEN gross_amount ELSE 0 END), 0)                              AS slingshot_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN gross_amount ELSE 0 END), 0)                              AS vehicle_revenue,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
-        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                  AS slingshot_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                  AS vehicle_stripe_fees,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN COALESCE(stripe_net, gross_amount - COALESCE(stripe_fee, 0))
                     - COALESCE(refund_amount, 0)
                ELSE gross_amount
              END
-        ELSE 0 END), 0)                                                AS slingshot_net_revenue,
+        ELSE 0 END), 0)                                                AS vehicle_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type = 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
-          AND NOT is_cancelled AND NOT is_no_show)                     AS slingshot_reconciled_count
+        WHERE vehicle_type = 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
+          AND NOT is_cancelled AND NOT is_no_show)                     AS vehicle_reconciled_count
     FROM fin_all
   ),
 
@@ -5947,10 +5947,10 @@ WITH
   exp AS (
     SELECT
       COALESCE(SUM(e.amount), 0)                                       AS total_expenses,
-      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'slingshot'
+      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'vehicle'
         THEN e.amount ELSE 0 END), 0)                                  AS car_expenses,
-      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'slingshot'
-        THEN e.amount ELSE 0 END), 0)                                  AS slingshot_expenses
+      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'vehicle'
+        THEN e.amount ELSE 0 END), 0)                                  AS vehicle_expenses
     FROM   expenses e
     LEFT JOIN vt ON vt.vehicle_id = e.vehicle_id
   ),
@@ -5977,44 +5977,44 @@ WITH
                            'approved', 'booked_paid'))                 AS total_pickups_today,
       -- Car
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('active', 'active_rental', 'overdue'))      AS car_active_rentals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
                                                                         AS car_pending_approvals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status = 'overdue')                                    AS car_overdue_count,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('active', 'active_rental', 'overdue'))      AS car_returns_today,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification',
                            'approved', 'booked_paid'))                 AS car_pickups_today,
-      -- Slingshot
+      -- Vehicle
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status IN ('active', 'active_rental', 'overdue'))      AS slingshot_active_rentals,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status IN ('active', 'active_rental', 'overdue'))      AS vehicle_active_rentals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
-                                                                        AS slingshot_pending_approvals,
+                                                                        AS vehicle_pending_approvals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status = 'overdue')                                     AS slingshot_overdue_count,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status = 'overdue')                                     AS vehicle_overdue_count,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
-          AND b.status IN ('active', 'active_rental', 'overdue'))      AS slingshot_returns_today,
+          AND b.status IN ('active', 'active_rental', 'overdue'))      AS vehicle_returns_today,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification',
-                           'approved', 'booked_paid'))                 AS slingshot_pickups_today
+                           'approved', 'booked_paid'))                 AS vehicle_pickups_today
     FROM   bookings b
     LEFT JOIN vt ON vt.vehicle_id = b.vehicle_id
     WHERE  b.status NOT IN ('completed', 'completed_rental', 'cancelled', 'cancelled_rental')
@@ -6031,18 +6031,18 @@ WITH
           ))                                                           AS total_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND COALESCE(v.vehicle_type, '') != 'slingshot'
+          AND COALESCE(v.vehicle_type, '') != 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'active_rental', 'overdue')
           ))                                                           AS car_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND v.vehicle_type = 'slingshot'
+          AND v.vehicle_type = 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'active_rental', 'overdue')
-          ))                                                           AS slingshot_available_vehicles
+          ))                                                           AS vehicle_available_vehicles
     FROM vehicles v
   ),
 
@@ -6075,7 +6075,7 @@ WITH
 
   -- ── Monthly revenue data for the chart (last 12 months) ─────────────────────
   monthly AS (
-    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(slingshot_amt) AS slingshot_amt
+    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(vehicle_amt) AS vehicle_amt
     FROM (
       -- From revenue_records
       SELECT
@@ -6083,14 +6083,14 @@ WITH
         SUM(CASE WHEN NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                              AS total_amt,
-        SUM(CASE WHEN r.vehicle_type != 'slingshot'
+        SUM(CASE WHEN r.vehicle_type != 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                              AS car_amt,
-        SUM(CASE WHEN r.vehicle_type = 'slingshot'
+        SUM(CASE WHEN r.vehicle_type = 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
-          THEN r.gross_amount ELSE 0 END)                              AS slingshot_amt
+          THEN r.gross_amount ELSE 0 END)                              AS vehicle_amt
       FROM rev r
       WHERE r.pickup_date IS NOT NULL
       GROUP BY LEFT(r.pickup_date::text, 7)
@@ -6099,8 +6099,8 @@ WITH
       SELECT
         LEFT(c.charge_date::text, 7) AS mo,
         SUM(c.amount)                                                  AS total_amt,
-        SUM(CASE WHEN c.vehicle_type != 'slingshot' THEN c.amount ELSE 0 END) AS car_amt,
-        SUM(CASE WHEN c.vehicle_type  = 'slingshot' THEN c.amount ELSE 0 END) AS slingshot_amt
+        SUM(CASE WHEN c.vehicle_type != 'vehicle' THEN c.amount ELSE 0 END) AS car_amt,
+        SUM(CASE WHEN c.vehicle_type  = 'vehicle' THEN c.amount ELSE 0 END) AS vehicle_amt
       FROM charges_net c
       GROUP BY LEFT(c.charge_date::text, 7)
     ) combined
@@ -6132,17 +6132,17 @@ SELECT
                 / e.car_expenses * 100)::numeric, 2)
     ELSE NULL END                                                       AS car_operational_roi,
 
-  -- ── Financial KPIs — Slingshot ───────────────────────────────────────────
-  f.slingshot_revenue,
-  f.slingshot_stripe_fees,
-  f.slingshot_net_revenue,
-  f.slingshot_reconciled_count,
-  e.slingshot_expenses,
-  (f.slingshot_net_revenue - e.slingshot_expenses)::numeric            AS slingshot_net_profit,
-  CASE WHEN e.slingshot_expenses > 0
-    THEN ROUND(((f.slingshot_net_revenue - e.slingshot_expenses)
-                / e.slingshot_expenses * 100)::numeric, 2)
-    ELSE NULL END                                                       AS slingshot_operational_roi,
+  -- ── Financial KPIs — Vehicle ───────────────────────────────────────────
+  f.vehicle_revenue,
+  f.vehicle_stripe_fees,
+  f.vehicle_net_revenue,
+  f.vehicle_reconciled_count,
+  e.vehicle_expenses,
+  (f.vehicle_net_revenue - e.vehicle_expenses)::numeric            AS vehicle_net_profit,
+  CASE WHEN e.vehicle_expenses > 0
+    THEN ROUND(((f.vehicle_net_revenue - e.vehicle_expenses)
+                / e.vehicle_expenses * 100)::numeric, 2)
+    ELSE NULL END                                                       AS vehicle_operational_roi,
 
   -- ── Booking counts — Total ───────────────────────────────────────────────
   bk.total_active_rentals,
@@ -6158,17 +6158,17 @@ SELECT
   bk.car_returns_today,
   bk.car_pickups_today,
 
-  -- ── Booking counts — Slingshot ───────────────────────────────────────────
-  bk.slingshot_active_rentals,
-  bk.slingshot_pending_approvals,
-  bk.slingshot_overdue_count,
-  bk.slingshot_returns_today,
-  bk.slingshot_pickups_today,
+  -- ── Booking counts — Vehicle ───────────────────────────────────────────
+  bk.vehicle_active_rentals,
+  bk.vehicle_pending_approvals,
+  bk.vehicle_overdue_count,
+  bk.vehicle_returns_today,
+  bk.vehicle_pickups_today,
 
   -- ── Available vehicles ───────────────────────────────────────────────────
   av.total_available_vehicles,
   av.car_available_vehicles,
-  av.slingshot_available_vehicles,
+  av.vehicle_available_vehicles,
 
   -- ── Per-vehicle revenue JSONB (keyed by vehicle_id) ─────────────────────
   -- Used by v2-dashboard.js to populate rrByVehicle for vehicleStats computation.
@@ -6220,17 +6220,17 @@ SELECT
   (
     SELECT COALESCE(
       json_agg(
-        json_build_object('month', mo, 'amount', ROUND(slingshot_amt::numeric, 2))
+        json_build_object('month', mo, 'amount', ROUND(vehicle_amt::numeric, 2))
         ORDER BY mo
       ),
       '[]'::json
     )
     FROM (
-      SELECT mo, slingshot_amt FROM monthly
-      WHERE  slingshot_amt > 0
+      SELECT mo, vehicle_amt FROM monthly
+      WHERE  vehicle_amt > 0
       ORDER BY mo DESC LIMIT 12
     ) sub
-  )                                                                     AS slingshot_revenue_chart
+  )                                                                     AS vehicle_revenue_chart
 
 FROM fin f, exp e, bk, avail av;
 
@@ -6544,7 +6544,7 @@ ALTER TABLE revenue_records ALTER COLUMN booking_id DROP NOT NULL;
 
 CREATE OR REPLACE VIEW admin_metrics_v2 AS
 WITH
-  -- ── Vehicle type lookup (slingshot vs car) ──────────────────────────────────
+  -- ── Vehicle type lookup (vehicle vs car) ──────────────────────────────────
   vt AS (
     SELECT vehicle_id, COALESCE(vehicle_type, '') AS vehicle_type
     FROM   vehicles
@@ -6625,14 +6625,14 @@ WITH
         WHERE from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                      AS total_reconciled_count,
 
-      -- Car (vehicle_type != 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      -- Car (vehicle_type != 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN gross_amount ELSE 0 END), 0)                               AS car_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
         THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS car_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type != 'slingshot'
+      COALESCE(SUM(CASE WHEN vehicle_type != 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN gross_amount - COALESCE(stripe_fee, 0) - COALESCE(refund_amount, 0)
@@ -6640,26 +6640,26 @@ WITH
              END
         ELSE 0 END), 0)                                                 AS car_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type != 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
+        WHERE vehicle_type != 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
           AND NOT is_cancelled AND NOT is_no_show)                      AS car_reconciled_count,
 
-      -- Slingshot (vehicle_type = 'slingshot')
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+      -- Vehicle (vehicle_type = 'vehicle')
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
-        THEN gross_amount ELSE 0 END), 0)                               AS slingshot_revenue,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN gross_amount ELSE 0 END), 0)                               AS vehicle_revenue,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND from_rr AND NOT is_cancelled AND NOT is_no_show
-        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS slingshot_stripe_fees,
-      COALESCE(SUM(CASE WHEN vehicle_type = 'slingshot'
+        THEN COALESCE(stripe_fee, 0) ELSE 0 END), 0)                   AS vehicle_stripe_fees,
+      COALESCE(SUM(CASE WHEN vehicle_type = 'vehicle'
         AND NOT is_cancelled AND NOT is_no_show
         THEN CASE WHEN from_rr
                THEN gross_amount - COALESCE(stripe_fee, 0) - COALESCE(refund_amount, 0)
                ELSE gross_amount
              END
-        ELSE 0 END), 0)                                                 AS slingshot_net_revenue,
+        ELSE 0 END), 0)                                                 AS vehicle_net_revenue,
       COUNT(*) FILTER (
-        WHERE vehicle_type = 'slingshot' AND from_rr AND stripe_fee IS NOT NULL
-          AND NOT is_cancelled AND NOT is_no_show)                      AS slingshot_reconciled_count
+        WHERE vehicle_type = 'vehicle' AND from_rr AND stripe_fee IS NOT NULL
+          AND NOT is_cancelled AND NOT is_no_show)                      AS vehicle_reconciled_count
     FROM fin_all
   ),
 
@@ -6667,10 +6667,10 @@ WITH
   exp AS (
     SELECT
       COALESCE(SUM(e.amount), 0)                                        AS total_expenses,
-      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'slingshot'
+      COALESCE(SUM(CASE WHEN COALESCE(vt.vehicle_type, '') != 'vehicle'
         THEN e.amount ELSE 0 END), 0)                                   AS car_expenses,
-      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'slingshot'
-        THEN e.amount ELSE 0 END), 0)                                   AS slingshot_expenses
+      COALESCE(SUM(CASE WHEN vt.vehicle_type = 'vehicle'
+        THEN e.amount ELSE 0 END), 0)                                   AS vehicle_expenses
     FROM   expenses e
     LEFT JOIN vt ON vt.vehicle_id = e.vehicle_id
   ),
@@ -6694,44 +6694,44 @@ WITH
                                                                         AS total_pickups_today,
       -- Car
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('active', 'overdue'))                        AS car_active_rentals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
                                                                         AS car_pending_approvals,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.status = 'overdue')                                     AS car_overdue_count,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('active', 'overdue'))                        AS car_returns_today,
       COUNT(*) FILTER (
-        WHERE COALESCE(vt.vehicle_type, '') != 'slingshot'
+        WHERE COALESCE(vt.vehicle_type, '') != 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
                                                                         AS car_pickups_today,
-      -- Slingshot
+      -- Vehicle
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status IN ('active', 'overdue'))                        AS slingshot_active_rentals,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status IN ('active', 'overdue'))                        AS vehicle_active_rentals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
-                                                                        AS slingshot_pending_approvals,
+                                                                        AS vehicle_pending_approvals,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
-          AND b.status = 'overdue')                                     AS slingshot_overdue_count,
+        WHERE vt.vehicle_type = 'vehicle'
+          AND b.status = 'overdue')                                     AS vehicle_overdue_count,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.return_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
-          AND b.status IN ('active', 'overdue'))                        AS slingshot_returns_today,
+          AND b.status IN ('active', 'overdue'))                        AS vehicle_returns_today,
       COUNT(*) FILTER (
-        WHERE vt.vehicle_type = 'slingshot'
+        WHERE vt.vehicle_type = 'vehicle'
           AND b.pickup_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles')::date
           AND b.status IN ('pending', 'reserved', 'pending_verification'))
-                                                                        AS slingshot_pickups_today
+                                                                        AS vehicle_pickups_today
     FROM   bookings b
     LEFT JOIN vt ON vt.vehicle_id = b.vehicle_id
     WHERE  b.status NOT IN ('completed')
@@ -6748,18 +6748,18 @@ WITH
           ))                                                            AS total_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND COALESCE(v.vehicle_type, '') != 'slingshot'
+          AND COALESCE(v.vehicle_type, '') != 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'overdue')
           ))                                                            AS car_available_vehicles,
       COUNT(*) FILTER (
         WHERE (v.data ->> 'status') = 'active'
-          AND v.vehicle_type = 'slingshot'
+          AND v.vehicle_type = 'vehicle'
           AND v.vehicle_id NOT IN (
             SELECT DISTINCT vehicle_id FROM bookings
             WHERE  status IN ('active', 'overdue')
-          ))                                                            AS slingshot_available_vehicles
+          ))                                                            AS vehicle_available_vehicles
     FROM vehicles v
   ),
 
@@ -6792,7 +6792,7 @@ WITH
 
   -- ── Monthly revenue data for the chart (last 12 months) ─────────────────────
   monthly AS (
-    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(slingshot_amt) AS slingshot_amt
+    SELECT mo, SUM(total_amt) AS total_amt, SUM(car_amt) AS car_amt, SUM(vehicle_amt) AS vehicle_amt
     FROM (
       -- From revenue_records
       SELECT
@@ -6800,14 +6800,14 @@ WITH
         SUM(CASE WHEN NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                               AS total_amt,
-        SUM(CASE WHEN r.vehicle_type != 'slingshot'
+        SUM(CASE WHEN r.vehicle_type != 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
           THEN r.gross_amount ELSE 0 END)                               AS car_amt,
-        SUM(CASE WHEN r.vehicle_type = 'slingshot'
+        SUM(CASE WHEN r.vehicle_type = 'vehicle'
                   AND NOT COALESCE(r.is_cancelled, false)
                   AND NOT COALESCE(r.is_no_show,   false)
-          THEN r.gross_amount ELSE 0 END)                               AS slingshot_amt
+          THEN r.gross_amount ELSE 0 END)                               AS vehicle_amt
       FROM rev r
       WHERE r.pickup_date IS NOT NULL
       GROUP BY LEFT(r.pickup_date::text, 7)
@@ -6816,8 +6816,8 @@ WITH
       SELECT
         LEFT(c.charge_date::text, 7) AS mo,
         SUM(c.amount)                                                   AS total_amt,
-        SUM(CASE WHEN c.vehicle_type != 'slingshot' THEN c.amount ELSE 0 END) AS car_amt,
-        SUM(CASE WHEN c.vehicle_type  = 'slingshot' THEN c.amount ELSE 0 END) AS slingshot_amt
+        SUM(CASE WHEN c.vehicle_type != 'vehicle' THEN c.amount ELSE 0 END) AS car_amt,
+        SUM(CASE WHEN c.vehicle_type  = 'vehicle' THEN c.amount ELSE 0 END) AS vehicle_amt
       FROM charges_net c
       GROUP BY LEFT(c.charge_date::text, 7)
     ) combined
@@ -6849,17 +6849,17 @@ SELECT
                 / e.car_expenses * 100)::numeric, 2)
     ELSE NULL END                                                        AS car_operational_roi,
 
-  -- ── Financial KPIs — Slingshot ───────────────────────────────────────────
-  f.slingshot_revenue,
-  f.slingshot_stripe_fees,
-  f.slingshot_net_revenue,
-  f.slingshot_reconciled_count,
-  e.slingshot_expenses,
-  (f.slingshot_net_revenue - e.slingshot_expenses)::numeric             AS slingshot_net_profit,
-  CASE WHEN e.slingshot_expenses > 0
-    THEN ROUND(((f.slingshot_net_revenue - e.slingshot_expenses)
-                / e.slingshot_expenses * 100)::numeric, 2)
-    ELSE NULL END                                                        AS slingshot_operational_roi,
+  -- ── Financial KPIs — Vehicle ───────────────────────────────────────────
+  f.vehicle_revenue,
+  f.vehicle_stripe_fees,
+  f.vehicle_net_revenue,
+  f.vehicle_reconciled_count,
+  e.vehicle_expenses,
+  (f.vehicle_net_revenue - e.vehicle_expenses)::numeric             AS vehicle_net_profit,
+  CASE WHEN e.vehicle_expenses > 0
+    THEN ROUND(((f.vehicle_net_revenue - e.vehicle_expenses)
+                / e.vehicle_expenses * 100)::numeric, 2)
+    ELSE NULL END                                                        AS vehicle_operational_roi,
 
   -- ── Booking counts — Total ───────────────────────────────────────────────
   bk.total_active_rentals,
@@ -6875,17 +6875,17 @@ SELECT
   bk.car_returns_today,
   bk.car_pickups_today,
 
-  -- ── Booking counts — Slingshot ───────────────────────────────────────────
-  bk.slingshot_active_rentals,
-  bk.slingshot_pending_approvals,
-  bk.slingshot_overdue_count,
-  bk.slingshot_returns_today,
-  bk.slingshot_pickups_today,
+  -- ── Booking counts — Vehicle ───────────────────────────────────────────
+  bk.vehicle_active_rentals,
+  bk.vehicle_pending_approvals,
+  bk.vehicle_overdue_count,
+  bk.vehicle_returns_today,
+  bk.vehicle_pickups_today,
 
   -- ── Available vehicles ───────────────────────────────────────────────────
   av.total_available_vehicles,
   av.car_available_vehicles,
-  av.slingshot_available_vehicles,
+  av.vehicle_available_vehicles,
 
   -- ── Per-vehicle revenue JSONB (keyed by vehicle_id) ─────────────────────
   -- Used by v2-dashboard.js to populate rrByVehicle for vehicleStats computation.
@@ -6937,17 +6937,17 @@ SELECT
   (
     SELECT COALESCE(
       json_agg(
-        json_build_object('month', mo, 'amount', ROUND(slingshot_amt::numeric, 2))
+        json_build_object('month', mo, 'amount', ROUND(vehicle_amt::numeric, 2))
         ORDER BY mo
       ),
       '[]'::json
     )
     FROM (
-      SELECT mo, slingshot_amt FROM monthly
-      WHERE  slingshot_amt > 0
+      SELECT mo, vehicle_amt FROM monthly
+      WHERE  vehicle_amt > 0
       ORDER BY mo DESC LIMIT 12
     ) sub
-  )                                                                      AS slingshot_revenue_chart
+  )                                                                      AS vehicle_revenue_chart
 
 FROM fin f, exp e, bk, avail av;
 
@@ -8751,13 +8751,13 @@ GROUP BY COALESCE(original_booking_id, booking_id);
 
 
 -- ===========================================================================
--- 0105_delete_slingshot_vehicles.sql
+-- 0105_delete_vehicle_vehicles.sql
 -- ===========================================================================
--- Remove all slingshot vehicles from the fleet.
--- Slingshot units are no longer offered for rental.
+-- Remove all vehicle vehicles from the fleet.
+-- Vehicle units are no longer offered for rental.
 DELETE FROM vehicles
-WHERE vehicle_id LIKE 'slingshot%'
-   OR (data->>'type') = 'slingshot';
+WHERE vehicle_id LIKE 'vehicle%'
+   OR (data->>'type') = 'vehicle';
 
 
 -- ===========================================================================
@@ -8944,12 +8944,12 @@ ON CONFLICT DO NOTHING;
 
 
 -- ===========================================================================
--- 0109_delete_slingshot_settings.sql
+-- 0109_delete_vehicle_settings.sql
 -- ===========================================================================
--- Remove all Slingshot-related entries from system_settings.
--- The Slingshot is no longer offered for rental.
+-- Remove all Vehicle-related entries from system_settings.
+-- The Vehicle is no longer offered for rental.
 DELETE FROM system_settings
-WHERE key LIKE 'slingshot%';
+WHERE key LIKE 'vehicle%';
 
 
 -- ===========================================================================
@@ -9769,9 +9769,9 @@ COMMENT ON COLUMN revenue_records.booking_ref IS
 --
 -- Root cause: the dashboard's "Available Vehicles" KPI was showing 3 instead of 2.
 -- The canonical fleet is exactly two vehicles: "camry" and "camry2013".
--- Extra rows (e.g. a legacy "camry2012" alias, leftover slingshot entries, or a
+-- Extra rows (e.g. a legacy "camry2012" alias, leftover vehicle entries, or a
 -- test vehicle created via the admin UI) can survive in the Supabase vehicles table
--- if they were added before migration 0105 (slingshot deletion) or inserted by the
+-- if they were added before migration 0105 (vehicle deletion) or inserted by the
 -- admin panel when the GitHub vehicles.json save failed.
 --
 -- Fix strategy:
@@ -10252,7 +10252,7 @@ WHERE vehicle_id NOT IN ('camry', 'camry2013', 'fusion2017')
 -- ===========================================================================
 -- Migration 0139: Add booking_type column to pending_booking_docs
 --
--- Purpose: distinguish slingshot agreements from car agreements stored
+-- Purpose: distinguish vehicle agreements from car agreements stored
 -- in the rental-agreements bucket.  The column is informational — the
 -- agreement_pdf_url path already contains the booking_id which is the
 -- canonical lookup key.  This column makes it easy to filter/audit.
@@ -10263,14 +10263,14 @@ ALTER TABLE pending_booking_docs
   ADD COLUMN IF NOT EXISTS booking_type text;
 
 COMMENT ON COLUMN pending_booking_docs.booking_type IS
-  'Type of booking that produced this agreement row: ''car'' or ''slingshot''';
+  'Type of booking that produced this agreement row: ''car'' or ''vehicle''';
 
 
 -- ===========================================================================
 -- 0140_category_revenue_separation.sql
 -- ===========================================================================
--- Make category ("car" | "slingshot") the canonical partition key for bookings,
--- payment rows, and revenue rows so car/slingshot financial reporting cannot mix.
+-- Make category ("car" | "vehicle") the canonical partition key for bookings,
+-- payment rows, and revenue rows so car/vehicle financial reporting cannot mix.
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS category text;
@@ -10317,18 +10317,18 @@ END $$;
 ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_category_check;
 ALTER TABLE bookings
   ADD CONSTRAINT bookings_category_check
-  CHECK (category IS NULL OR category IN ('car','slingshot'));
+  CHECK (category IS NULL OR category IN ('car','vehicle'));
 
 ALTER TABLE revenue_records DROP CONSTRAINT IF EXISTS revenue_records_category_check;
 ALTER TABLE revenue_records
   ADD CONSTRAINT revenue_records_category_check
-  CHECK (category IS NULL OR category IN ('car','slingshot'));
+  CHECK (category IS NULL OR category IN ('car','vehicle'));
 
 DO $$
 BEGIN
   IF to_regclass('public.payments') IS NOT NULL THEN
     EXECUTE 'ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_category_check';
-    EXECUTE 'ALTER TABLE payments ADD CONSTRAINT payments_category_check CHECK (category IS NULL OR category IN (''car'',''slingshot''))';
+    EXECUTE 'ALTER TABLE payments ADD CONSTRAINT payments_category_check CHECK (category IS NULL OR category IN (''car'',''vehicle''))';
   END IF;
 END $$;
 
@@ -10336,7 +10336,7 @@ DO $$
 BEGIN
   IF to_regclass('public.payment_transactions') IS NOT NULL THEN
     EXECUTE 'ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_category_check';
-    EXECUTE 'ALTER TABLE payment_transactions ADD CONSTRAINT payment_transactions_category_check CHECK (category IS NULL OR category IN (''car'',''slingshot''))';
+    EXECUTE 'ALTER TABLE payment_transactions ADD CONSTRAINT payment_transactions_category_check CHECK (category IS NULL OR category IN (''car'',''vehicle''))';
   END IF;
 END $$;
 
@@ -10346,7 +10346,7 @@ SET category = lower(v.data->>'category')
 FROM vehicles v
 WHERE b.category IS NULL
   AND v.vehicle_id = b.vehicle_id
-  AND lower(v.data->>'category') IN ('car', 'slingshot');
+  AND lower(v.data->>'category') IN ('car', 'vehicle');
 
 -- Backfill revenue_records.category from linked bookings first.
 UPDATE revenue_records rr
@@ -10355,7 +10355,7 @@ FROM bookings b
 WHERE rr.category IS NULL
   AND b.booking_ref IS NOT NULL
   AND rr.booking_id = b.booking_ref
-  AND b.category IN ('car', 'slingshot');
+  AND b.category IN ('car', 'vehicle');
 
 -- Secondary backfill by vehicle category for remaining revenue rows.
 UPDATE revenue_records rr
@@ -10363,7 +10363,7 @@ SET category = lower(v.data->>'category')
 FROM vehicles v
 WHERE rr.category IS NULL
   AND rr.vehicle_id = v.vehicle_id
-  AND lower(v.data->>'category') IN ('car', 'slingshot');
+  AND lower(v.data->>'category') IN ('car', 'vehicle');
 
 DO $$
 BEGIN
@@ -10374,7 +10374,7 @@ BEGIN
       FROM bookings b
       WHERE p.category IS NULL
         AND p.booking_id = b.id
-        AND b.category IN ('car', 'slingshot')
+        AND b.category IN ('car', 'vehicle')
     $stmt$;
   END IF;
 END $$;
@@ -10388,25 +10388,25 @@ BEGIN
       FROM bookings b
       WHERE pt.category IS NULL
         AND pt.booking_id = b.booking_ref
-        AND b.category IN ('car', 'slingshot')
+        AND b.category IN ('car', 'vehicle')
     $stmt$;
   END IF;
 END $$;
 
 
 -- ===========================================================================
--- 0141_fix_slingshot_vehicle_category.sql
+-- 0141_fix_vehicle_vehicle_category.sql
 -- ===========================================================================
--- Backfill correct category for slingshot vehicles that were saved with
+-- Backfill correct category for vehicle vehicles that were saved with
 -- data.category = 'car' or no category at all.
 UPDATE vehicles
-SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{category}', '"slingshot"')
+SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{category}', '"vehicle"')
 WHERE (
-    vehicle_id ILIKE 'slingshot%'
-    OR data->>'type' = 'slingshot'
-    OR lower(data->>'vehicle_name') LIKE '%slingshot%'
+    vehicle_id ILIKE 'vehicle%'
+    OR data->>'type' = 'vehicle'
+    OR lower(data->>'vehicle_name') LIKE '%vehicle%'
 )
-  AND (data->>'category' IS NULL OR data->>'category' != 'slingshot');
+  AND (data->>'category' IS NULL OR data->>'category' != 'vehicle');
 
 
 -- ===========================================================================
@@ -11800,10 +11800,10 @@ ON CONFLICT DO NOTHING;
 
 
 -- ===========================================================================
--- 0109_delete_slingshot_settings.sql
+-- 0109_delete_vehicle_settings.sql
 -- ===========================================================================
--- Migration 0109: Slingshot system_settings are kept.
--- The original DELETE has been reverted — slingshot settings remain active.
+-- Migration 0109: Vehicle system_settings are kept.
+-- The original DELETE has been reverted — vehicle settings remain active.
 -- No-op: this migration is intentionally left as a comment-only statement
 -- so that the migration sequence remains intact for existing databases.
 SELECT 1 WHERE false; -- no-op
@@ -12718,8 +12718,8 @@ COMMENT ON COLUMN revenue_records.booking_ref IS
 -- Migration 0124: Remove phantom/stale vehicle rows from Supabase vehicles table.
 --
 -- Root cause: the dashboard's "Available Vehicles" KPI was showing 3 instead of 2.
--- The canonical fleet includes: camry, camry2013, fusion2017, and slingshot vehicles
--- (vehicle_id LIKE 'slingshot%').  Extra rows (e.g. a legacy "camry2012" alias or
+-- The canonical fleet includes: camry, camry2013, fusion2017, and vehicle vehicles
+-- (vehicle_id LIKE 'vehicle%').  Extra rows (e.g. a legacy "camry2012" alias or
 -- a test vehicle created via the admin UI) can survive in the Supabase vehicles table
 -- if they were inserted by the admin panel when the GitHub vehicles.json save failed.
 --
@@ -12735,7 +12735,7 @@ COMMENT ON COLUMN revenue_records.booking_ref IS
 -- Step 1: hard-delete stale rows with no booking history
 DELETE FROM vehicles
 WHERE vehicle_id NOT IN ('camry', 'camry2013', 'fusion2017')
-  AND vehicle_id NOT LIKE 'slingshot%'
+  AND vehicle_id NOT LIKE 'vehicle%'
   AND NOT EXISTS (
     SELECT 1 FROM bookings b WHERE b.vehicle_id = vehicles.vehicle_id
   );
@@ -12745,7 +12745,7 @@ WHERE vehicle_id NOT IN ('camry', 'camry2013', 'fusion2017')
 UPDATE vehicles
 SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{status}', '"inactive"')
 WHERE vehicle_id NOT IN ('camry', 'camry2013', 'fusion2017')
-  AND vehicle_id NOT LIKE 'slingshot%'
+  AND vehicle_id NOT LIKE 'vehicle%'
   AND EXISTS (
     SELECT 1 FROM bookings b WHERE b.vehicle_id = vehicles.vehicle_id
   );
@@ -13595,7 +13595,7 @@ WHERE vehicle_id NOT IN ('camry', 'camry2013', 'fusion2017')
 -- ===========================================================================
 -- Migration 0139: Add booking_type column to pending_booking_docs
 --
--- Purpose: distinguish slingshot agreements from car agreements stored
+-- Purpose: distinguish vehicle agreements from car agreements stored
 -- in the rental-agreements bucket.  The column is informational — the
 -- agreement_pdf_url path already contains the booking_id which is the
 -- canonical lookup key.  This column makes it easy to filter/audit.
@@ -13606,15 +13606,15 @@ ALTER TABLE pending_booking_docs
   ADD COLUMN IF NOT EXISTS booking_type text;
 
 COMMENT ON COLUMN pending_booking_docs.booking_type IS
-  'Type of booking that produced this agreement row: ''car'' or ''slingshot''';
+  'Type of booking that produced this agreement row: ''car'' or ''vehicle''';
 
 
 -- ===========================================================================
 -- 0140_category_revenue_separation.sql
 -- ===========================================================================
 -- 0140_category_revenue_separation.sql
--- Make category ("car" | "slingshot") the canonical partition key for bookings,
--- payment rows, and revenue rows so car/slingshot financial reporting cannot mix.
+-- Make category ("car" | "vehicle") the canonical partition key for bookings,
+-- payment rows, and revenue rows so car/vehicle financial reporting cannot mix.
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS category text;
@@ -13661,18 +13661,18 @@ END $$;
 ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_category_check;
 ALTER TABLE bookings
   ADD CONSTRAINT bookings_category_check
-  CHECK (category IS NULL OR category IN ('car','slingshot'));
+  CHECK (category IS NULL OR category IN ('car','vehicle'));
 
 ALTER TABLE revenue_records DROP CONSTRAINT IF EXISTS revenue_records_category_check;
 ALTER TABLE revenue_records
   ADD CONSTRAINT revenue_records_category_check
-  CHECK (category IS NULL OR category IN ('car','slingshot'));
+  CHECK (category IS NULL OR category IN ('car','vehicle'));
 
 DO $$
 BEGIN
   IF to_regclass('public.payments') IS NOT NULL THEN
     EXECUTE 'ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_category_check';
-    EXECUTE 'ALTER TABLE payments ADD CONSTRAINT payments_category_check CHECK (category IS NULL OR category IN (''car'',''slingshot''))';
+    EXECUTE 'ALTER TABLE payments ADD CONSTRAINT payments_category_check CHECK (category IS NULL OR category IN (''car'',''vehicle''))';
   END IF;
 END $$;
 
@@ -13680,7 +13680,7 @@ DO $$
 BEGIN
   IF to_regclass('public.payment_transactions') IS NOT NULL THEN
     EXECUTE 'ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_category_check';
-    EXECUTE 'ALTER TABLE payment_transactions ADD CONSTRAINT payment_transactions_category_check CHECK (category IS NULL OR category IN (''car'',''slingshot''))';
+    EXECUTE 'ALTER TABLE payment_transactions ADD CONSTRAINT payment_transactions_category_check CHECK (category IS NULL OR category IN (''car'',''vehicle''))';
   END IF;
 END $$;
 
@@ -13690,7 +13690,7 @@ SET category = lower(v.data->>'category')
 FROM vehicles v
 WHERE b.category IS NULL
   AND v.vehicle_id = b.vehicle_id
-  AND lower(v.data->>'category') IN ('car', 'slingshot');
+  AND lower(v.data->>'category') IN ('car', 'vehicle');
 
 -- Backfill revenue_records.category from linked bookings first.
 UPDATE revenue_records rr
@@ -13699,7 +13699,7 @@ FROM bookings b
 WHERE rr.category IS NULL
   AND b.booking_ref IS NOT NULL
   AND rr.booking_id = b.booking_ref
-  AND b.category IN ('car', 'slingshot');
+  AND b.category IN ('car', 'vehicle');
 
 -- Secondary backfill by vehicle category for remaining revenue rows.
 UPDATE revenue_records rr
@@ -13707,7 +13707,7 @@ SET category = lower(v.data->>'category')
 FROM vehicles v
 WHERE rr.category IS NULL
   AND rr.vehicle_id = v.vehicle_id
-  AND lower(v.data->>'category') IN ('car', 'slingshot');
+  AND lower(v.data->>'category') IN ('car', 'vehicle');
 
 DO $$
 BEGIN
@@ -13718,7 +13718,7 @@ BEGIN
       FROM bookings b
       WHERE p.category IS NULL
         AND p.booking_id = b.id
-        AND b.category IN ('car', 'slingshot')
+        AND b.category IN ('car', 'vehicle')
     $stmt$;
   END IF;
 END $$;
@@ -13732,41 +13732,41 @@ BEGIN
       FROM bookings b
       WHERE pt.category IS NULL
         AND pt.booking_id = b.booking_ref
-        AND b.category IN ('car', 'slingshot')
+        AND b.category IN ('car', 'vehicle')
     $stmt$;
   END IF;
 END $$;
 
 
 -- ===========================================================================
--- 0141_fix_slingshot_vehicle_category.sql
+-- 0141_fix_vehicle_vehicle_category.sql
 -- ===========================================================================
--- Migration 0141: Backfill correct category for slingshot vehicles.
+-- Migration 0141: Backfill correct category for vehicle vehicles.
 --
--- Root cause: slingshot vehicles could be saved with data.category = 'car'
+-- Root cause: vehicle vehicles could be saved with data.category = 'car'
 -- (or no category at all) when they were created or edited through admin
--- portals that did not explicitly send category:'slingshot'.  The
+-- portals that did not explicitly send category:'vehicle'.  The
 -- deriveVehicleCategory helper in admin-ai-insights returns the explicit
 -- category value first, so a stored 'car' value overrides all name/type/id
--- fallback checks — causing slingshot vehicles to pass the car scope filter
+-- fallback checks — causing vehicle vehicles to pass the car scope filter
 -- and appear in the car admin's "Detected Problems" panel.
 --
 -- Fix strategy:
---   For every vehicle row where any of the canonical slingshot signals is
---   present (vehicle_id starts with 'slingshot', data->>'type' is 'slingshot',
---   or data->>'vehicle_name' contains 'slingshot' case-insensitively), force
---   data.category to 'slingshot'.
+--   For every vehicle row where any of the canonical vehicle signals is
+--   present (vehicle_id starts with 'vehicle', data->>'type' is 'vehicle',
+--   or data->>'vehicle_name' contains 'vehicle' case-insensitively), force
+--   data.category to 'vehicle'.
 --
 -- Safe to re-run: the WHERE clause is idempotent.
 
 UPDATE vehicles
-SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{category}', '"slingshot"')
+SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{category}', '"vehicle"')
 WHERE (
-    vehicle_id ILIKE 'slingshot%'
-    OR data->>'type' = 'slingshot'
-    OR lower(data->>'vehicle_name') LIKE '%slingshot%'
+    vehicle_id ILIKE 'vehicle%'
+    OR data->>'type' = 'vehicle'
+    OR lower(data->>'vehicle_name') LIKE '%vehicle%'
 )
-  AND (data->>'category' IS NULL OR data->>'category' != 'slingshot');
+  AND (data->>'category' IS NULL OR data->>'category' != 'vehicle');
 
 
 -- ===========================================================================
@@ -15217,51 +15217,51 @@ DROP FUNCTION IF EXISTS fn_prevent_renter_balance_ledger_mutation();
 
 
 -- ===========================================================================
--- 0156_backfill_slingshot_category_integrity.sql
+-- 0156_backfill_vehicle_category_integrity.sql
 -- ===========================================================================
--- Migration 0156: backfill slingshot category integrity with audit trail.
+-- Migration 0156: backfill vehicle category integrity with audit trail.
 --
 -- Goal:
---   Ensure vehicles that are clearly slingshot inventory are always tagged with
---   data.category = 'slingshot' so scope=slingshot pages/APIs include them.
+--   Ensure vehicles that are clearly vehicle inventory are always tagged with
+--   data.category = 'vehicle' so scope=vehicle pages/APIs include them.
 --
 -- Detection signals (any one):
---   1) vehicle_id starts with "slingshot"
---   2) data->>'type' = 'slingshot'
---   3) data->>'vehicle_name' contains "slingshot" (case-insensitive)
+--   1) vehicle_id starts with "vehicle"
+--   2) data->>'type' = 'vehicle'
+--   3) data->>'vehicle_name' contains "vehicle" (case-insensitive)
 --
 -- The migration is idempotent and non-destructive.
 
-CREATE TABLE IF NOT EXISTS slingshot_category_backfill_audit (
+CREATE TABLE IF NOT EXISTS vehicle_category_backfill_audit (
   vehicle_id         text PRIMARY KEY,
   previous_category  text,
   detected_reason    text NOT NULL,
-  corrected_category text NOT NULL DEFAULT 'slingshot',
+  corrected_category text NOT NULL DEFAULT 'vehicle',
   corrected_at       timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS slingshot_category_backfill_audit_corrected_at_idx
-  ON slingshot_category_backfill_audit (corrected_at DESC);
+CREATE INDEX IF NOT EXISTS vehicle_category_backfill_audit_corrected_at_idx
+  ON vehicle_category_backfill_audit (corrected_at DESC);
 
 WITH candidates AS (
   SELECT
     v.vehicle_id,
     v.data->>'category' AS previous_category,
     CASE
-      WHEN v.vehicle_id ILIKE 'slingshot%' THEN 'vehicle_id_prefix'
-      WHEN lower(COALESCE(v.data->>'type', '')) = 'slingshot' THEN 'type_field'
-      ELSE 'vehicle_name_contains_slingshot'
+      WHEN v.vehicle_id ILIKE 'vehicle%' THEN 'vehicle_id_prefix'
+      WHEN lower(COALESCE(v.data->>'type', '')) = 'vehicle' THEN 'type_field'
+      ELSE 'vehicle_name_contains_vehicle'
     END AS detected_reason
   FROM vehicles v
   WHERE (
-      v.vehicle_id ILIKE 'slingshot%'
-      OR lower(COALESCE(v.data->>'type', '')) = 'slingshot'
-      OR lower(COALESCE(v.data->>'vehicle_name', '')) LIKE '%slingshot%'
+      v.vehicle_id ILIKE 'vehicle%'
+      OR lower(COALESCE(v.data->>'type', '')) = 'vehicle'
+      OR lower(COALESCE(v.data->>'vehicle_name', '')) LIKE '%vehicle%'
     )
-    AND COALESCE(v.data->>'category', '') <> 'slingshot'
+    AND COALESCE(v.data->>'category', '') <> 'vehicle'
 ),
 audit_upsert AS (
-  INSERT INTO slingshot_category_backfill_audit (vehicle_id, previous_category, detected_reason)
+  INSERT INTO vehicle_category_backfill_audit (vehicle_id, previous_category, detected_reason)
   SELECT vehicle_id, previous_category, detected_reason
   FROM candidates
   ON CONFLICT (vehicle_id) DO UPDATE
@@ -15272,16 +15272,16 @@ audit_upsert AS (
 )
 UPDATE vehicles v
 SET
-  data = jsonb_set(COALESCE(v.data, '{}'::jsonb), '{category}', '"slingshot"'::jsonb, true),
+  data = jsonb_set(COALESCE(v.data, '{}'::jsonb), '{category}', '"vehicle"'::jsonb, true),
   updated_at = now()
 WHERE v.vehicle_id IN (SELECT vehicle_id FROM audit_upsert);
 
 -- Verification helper (run manually):
 -- SELECT vehicle_id, data->>'vehicle_name' AS vehicle_name, data->>'type' AS type, data->>'category' AS category
 -- FROM vehicles
--- WHERE vehicle_id ILIKE 'slingshot%'
---    OR lower(COALESCE(data->>'type', '')) = 'slingshot'
---    OR lower(COALESCE(data->>'vehicle_name','')) LIKE '%slingshot%'
+-- WHERE vehicle_id ILIKE 'vehicle%'
+--    OR lower(COALESCE(data->>'type', '')) = 'vehicle'
+--    OR lower(COALESCE(data->>'vehicle_name','')) LIKE '%vehicle%'
 -- ORDER BY vehicle_id;
 
 
@@ -15327,31 +15327,31 @@ CREATE INDEX IF NOT EXISTS payment_plan_allocations_plan_idx
 
 
 -- ===========================================================================
--- 0157_restore_slingshot_vehicles.sql
+-- 0157_restore_vehicle_vehicles.sql
 -- ===========================================================================
--- Migration 0157: Restore slingshot vehicle to the fleet.
+-- Migration 0157: Restore vehicle vehicle to the fleet.
 --
--- Migrations 0105 and 0109 were previously used to delete slingshot vehicles and
+-- Migrations 0105 and 0109 were previously used to delete vehicle vehicles and
 -- settings.  Those migrations have been reverted to no-ops.  This migration
--- re-seeds the slingshot row for any database where 0105 already ran and deleted
+-- re-seeds the vehicle row for any database where 0105 already ran and deleted
 -- the record.
 --
 -- Idempotent: uses INSERT ... ON CONFLICT DO UPDATE so re-running is safe.
 
 INSERT INTO vehicles (vehicle_id, data, updated_at)
 VALUES (
-  'slingshot',
+  'vehicle',
   jsonb_build_object(
-    'vehicle_id',    'slingshot',
-    'vehicle_name',  'Slingshot R',
-    'type',          'slingshot',
-    'category',      'slingshot',
+    'vehicle_id',    'vehicle',
+    'vehicle_name',  'Vehicle R',
+    'type',          'vehicle',
+    'category',      'vehicle',
     'vehicle_year',  null,
     'purchase_date', '',
     'purchase_price', 0,
     'status',        'active',
-    'cover_image',   '/images/slingshot.jpg',
-    'gallery_images', jsonb_build_array('/images/slingshot-2.jpg'),
+    'cover_image',   '/images/vehicle.jpg',
+    'gallery_images', jsonb_build_array('/images/vehicle-2.jpg'),
     'scarcity_text', '🏎️ Limited availability — book now'
   ),
   now()
@@ -15362,7 +15362,7 @@ ON CONFLICT (vehicle_id) DO UPDATE
   -- Only restore if the vehicle was previously deleted or set inactive;
   -- if it already exists and is active, keep existing data as-is.
   WHERE vehicles.data->>'status' IS DISTINCT FROM 'active'
-     OR vehicles.data->>'category' IS DISTINCT FROM 'slingshot';
+     OR vehicles.data->>'category' IS DISTINCT FROM 'vehicle';
 
 
 -- ===========================================================================
@@ -15378,9 +15378,9 @@ ADD COLUMN IF NOT EXISTS identity_session_id text;
 
 
 -- ===========================================================================
--- 0159_slingshot_inquiry_lifecycle_statuses.sql
+-- 0159_vehicle_inquiry_lifecycle_statuses.sql
 -- ===========================================================================
--- Migration 0159: add slingshot inquiry/agreement/manual-payment lifecycle support
+-- Migration 0159: add vehicle inquiry/agreement/manual-payment lifecycle support
 
 DO $$ BEGIN
   ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check;
@@ -15423,8 +15423,8 @@ ALTER TABLE pending_booking_docs
   ADD COLUMN IF NOT EXISTS user_agent text;
 
 ALTER TABLE bookings
-  ADD COLUMN IF NOT EXISTS slingshot_payment_method text,
-  ADD COLUMN IF NOT EXISTS slingshot_payment_notes text;
+  ADD COLUMN IF NOT EXISTS vehicle_payment_method text,
+  ADD COLUMN IF NOT EXISTS vehicle_payment_notes text;
 
 
 -- ===========================================================================
@@ -15741,14 +15741,14 @@ END $$;
 
 
 -- ===========================================================================
--- 0161_slingshot_conflict_trigger_draft_exclusion.sql
+-- 0161_vehicle_conflict_trigger_draft_exclusion.sql
 -- ===========================================================================
--- Migration 0161: Exclude slingshot pre-payment draft statuses from booking
+-- Migration 0161: Exclude vehicle pre-payment draft statuses from booking
 -- conflict detection.
 --
 -- Problem:
 --   The check_booking_conflicts trigger treats ANY non-terminal status as a
---   confirmed booking.  Slingshot bookings pass through several "draft"
+--   confirmed booking.  Vehicle bookings pass through several "draft"
 --   pre-payment states before becoming confirmed:
 --
 --     pending_checkout  → agreement_pending → agreement_signed
@@ -15778,14 +15778,14 @@ DECLARE
   new_start     timestamptz;
   new_end       timestamptz;
 BEGIN
-  -- Terminal statuses and slingshot pre-payment draft statuses never conflict.
+  -- Terminal statuses and vehicle pre-payment draft statuses never conflict.
   -- Draft rows are not confirmed reservations and must not block the calendar.
   IF NEW.status IN (
     -- Terminal / free-vehicle states
     'cancelled', 'completed', 'completed_rental', 'cancelled_rental',
     -- Failed / abandoned checkout flows
     'abandoned_checkout', 'upload_failed', 'payment_failed',
-    -- Slingshot pre-payment draft states (no confirmed reservation yet)
+    -- Vehicle pre-payment draft states (no confirmed reservation yet)
     'pending_checkout',
     'inquiry_received', 'identity_pending', 'identity_verified',
     'agreement_pending', 'agreement_signed'
@@ -15799,7 +15799,7 @@ BEGIN
   new_end   := booking_datetime(NEW.return_date, NEW.return_time, true);
 
   -- Check for overlapping CONFIRMED bookings on the same vehicle.
-  -- Exclude terminal statuses and all slingshot draft states so that
+  -- Exclude terminal statuses and all vehicle draft states so that
   -- old abandoned or failed draft rows do not block new reservations.
   SELECT b.id INTO v_conflict_id
   FROM   bookings b

@@ -10,11 +10,11 @@
 -- It only overwrites a value when it does NOT already start with "images/" or
 -- "http" (i.e. it's a bare filename or unknown path), so safe to re-run.
 
--- Slingshot units (all share the same photo)
+-- Vehicle units (all share the same photo)
 UPDATE vehicles
-  SET data      = jsonb_set(data, '{cover_image}', '"images/slingshot.jpg"'::jsonb),
+  SET data      = jsonb_set(data, '{cover_image}', '"images/vehicle.jpg"'::jsonb),
       updated_at = now()
-  WHERE vehicle_id IN ('slingshot', 'slingshot2', 'slingshot3')
+  WHERE vehicle_id IN ('vehicle', 'vehicle2', 'vehicle3')
     AND NOT (
           data->>'cover_image' LIKE 'images/%'
        OR data->>'cover_image' LIKE '/images/%'
