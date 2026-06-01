@@ -1741,7 +1741,7 @@
               <div class="form-group">
                 <label class="form-label">Auto-Calculated Price</label>
                 <div class="price-display" id="mb-auto-price">–</div>
-                <div class="form-hint">Based on vehicle &amp; dates</div>
+                <div class="form-hint">Based on vehicle &amp; dates, incl. sales tax</div>
               </div>
               <div class="form-group">
                 <label class="form-label">Payment Status</label>
@@ -3755,10 +3755,11 @@
       </p>
       <input type="hidden" id="re-booking-id">
       <input type="hidden" id="re-vehicle-id">
+      <input type="hidden" id="re-current-return-date">
       <div style="display:grid;gap:12px;">
         <div>
           <label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px;">New Return Date <span style="color:red;">*</span></label>
-          <input type="date" id="re-return-date" class="form-input" style="font-size:13px;">
+          <input type="date" id="re-return-date" class="form-input" style="font-size:13px;" oninput="updateExtensionSuggestedAmount()">
         </div>
         <div>
           <label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px;">Extension Label (optional)</label>
@@ -3767,6 +3768,7 @@
         <div>
           <label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px;">Amount Charged ($) <span style="font-size:10px;color:var(--text-sub);">— required for revenue record</span></label>
           <input type="number" id="re-amount" class="form-input" placeholder="e.g. 165" step="0.01" min="0" style="font-size:13px;">
+          <div id="re-amount-hint" style="font-size:11px;color:var(--text-sub);margin-top:4px;display:none;"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="re-skip-email" style="width:16px;height:16px;cursor:pointer;">
@@ -7640,11 +7642,15 @@ function extendBooking(bookingId, vehicleId, btn) {
 
 function openResendExtensionModal(bookingId, vehicleId, _btn) {
   const b = findBookingByIdForActions(bookingId);
-  document.getElementById('re-booking-id').value  = bookingId;
-  document.getElementById('re-vehicle-id').value  = vehicleId;
-  document.getElementById('re-return-date').value = (b && b.returnDate) || '';
-  document.getElementById('re-ext-label').value   = '';
-  document.getElementById('re-amount').value      = '';
+  const currentReturnDate = (b && b.returnDate) || '';
+  document.getElementById('re-booking-id').value           = bookingId;
+  document.getElementById('re-vehicle-id').value           = vehicleId;
+  document.getElementById('re-current-return-date').value  = currentReturnDate;
+  document.getElementById('re-return-date').value          = currentReturnDate;
+  document.getElementById('re-ext-label').value            = '';
+  document.getElementById('re-amount').value               = '';
+  const hint = document.getElementById('re-amount-hint');
+  if (hint) { hint.textContent = ''; hint.style.display = 'none'; }
   // Pre-tick "skip email" if the booking has already been extended at least once
   // (emails were sent during the previous extension, so no need to resend on re-sync).
   document.getElementById('re-skip-email').checked = !!(b && b.extensionCount > 0);
@@ -7652,7 +7658,45 @@ function openResendExtensionModal(bookingId, vehicleId, _btn) {
   openModal('resend-extension-modal');
 }
 
-function submitResendExtension(btn) {
+/**
+ * Auto-suggests a tax-inclusive extension amount whenever the new return date
+ * changes. Non-taxed charge types (towing, late fees, tickets) are excluded from
+ * this suggestion because those costs are pass-through fees, not rental charges.
+ */
+function updateExtensionSuggestedAmount() {
+  const vehicleId       = document.getElementById('re-vehicle-id').value;
+  const currentRetDate  = document.getElementById('re-current-return-date').value;
+  const newRetDate      = document.getElementById('re-return-date').value;
+  const hint            = document.getElementById('re-amount-hint');
+  if (!hint) return;
+
+  if (!vehicleId || !currentRetDate || !newRetDate || newRetDate <= currentRetDate) {
+    hint.textContent = '';
+    hint.style.display = 'none';
+    return;
+  }
+
+  const rate = VEHICLE_RATES[vehicleId];
+  if (!rate) { hint.style.display = 'none'; return; }
+
+  const days = Math.max(1, Math.round((new Date(newRetDate) - new Date(currentRetDate)) / 86400000));
+  let rentalFee = 0;
+  if (rate.perWeek && days >= 7) {
+    const weeks   = Math.floor(days / 7);
+    const remDays = days % 7;
+    rentalFee = weeks * rate.perWeek + remDays * rate.perDay;
+  } else {
+    rentalFee = days * rate.perDay;
+  }
+
+  const taxRate   = getAdminTaxRate();
+  const taxAmount = Math.round(rentalFee * taxRate * 100) / 100;
+  const total     = Math.round((rentalFee + taxAmount) * 100) / 100;
+  hint.textContent = `Suggested (${days} day${days !== 1 ? 's' : ''} × $${rate.perDay}/day + ${(taxRate * 100).toFixed(2)}% tax): $${formatMoney(total)}`;
+  hint.style.display = '';
+}
+
+
   const bookingId  = document.getElementById('re-booking-id').value;
   const vehicleId  = document.getElementById('re-vehicle-id').value;
   const returnDate = (document.getElementById('re-return-date').value || '').trim();
@@ -7789,6 +7833,15 @@ function restoreDeletedBooking(bookingId, btn) {
     });
 }
 
+/**
+ * Returns the sales tax rate from system settings, falling back to the
+ * Los Angeles combined rate (10.25%) when settings have not yet been loaded.
+ */
+function getAdminTaxRate() {
+  const s = allSystemSettings.find(function(setting) { return setting.key === 'la_tax_rate'; });
+  return (s && typeof s.value === 'number' && s.value > 0) ? s.value : 0.1025;
+}
+
 function updateManualPrice() {
   const vehicleId  = document.getElementById('mb-vehicle').value;
   const pickupDate = document.getElementById('mb-pickup-date').value;
@@ -7801,18 +7854,22 @@ function updateManualPrice() {
   }
 
   const rate  = VEHICLE_RATES[vehicleId];
+  if (!rate) { el.textContent = '–'; return; }
   const days  = Math.max(1, Math.round((new Date(returnDate) - new Date(pickupDate)) / 86400000));
-  let price   = 0;
+  let rentalFee = 0;
 
   if (rate.perWeek && days >= 7) {
     const weeks    = Math.floor(days / 7);
     const remDays  = days % 7;
-    price = weeks * rate.perWeek + remDays * rate.perDay;
+    rentalFee = weeks * rate.perWeek + remDays * rate.perDay;
   } else {
-    price = days * rate.perDay;
+    rentalFee = days * rate.perDay;
   }
 
-  el.textContent = '$' + formatMoney(price);
+  const taxRate   = getAdminTaxRate();
+  const taxAmount = Math.round(rentalFee * taxRate * 100) / 100;
+  const total     = Math.round((rentalFee + taxAmount) * 100) / 100;
+  el.textContent = '$' + formatMoney(total);
 }
 
 async function submitManualBooking(e) {
