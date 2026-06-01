@@ -8,7 +8,7 @@
 -- JSON fallback path.
 --
 -- Only applies to vehicles where bouncie_device_id IS NOT NULL.
--- Slingshots are excluded in the application layer before alert logic runs.
+-- Vehicles are excluded in the application layer before alert logic runs.
 --
 -- Safe to re-run: ADD COLUMN IF NOT EXISTS is idempotent.
 

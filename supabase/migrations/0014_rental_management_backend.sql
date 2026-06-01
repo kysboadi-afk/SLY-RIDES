@@ -44,12 +44,12 @@ UPDATE vehicles SET
   vehicle_name   = COALESCE(vehicle_name,   data->>'vehicle_name'),
   vehicle_type   = COALESCE(vehicle_type,   data->>'type'),
   daily_price    = COALESCE(daily_price,    CASE
-    WHEN vehicle_id IN ('slingshot','slingshot2','slingshot3') THEN 350
+    WHEN vehicle_id IN ('vehicle','vehicle2','vehicle3') THEN 350
     WHEN vehicle_id IN ('camry','camry2013')                   THEN  55
     ELSE 0
   END),
   deposit_amount = COALESCE(deposit_amount, CASE
-    WHEN vehicle_id IN ('slingshot','slingshot2','slingshot3') THEN 150
+    WHEN vehicle_id IN ('vehicle','vehicle2','vehicle3') THEN 150
     ELSE 0
   END),
   rental_status  = COALESCE(rental_status, 'available'),

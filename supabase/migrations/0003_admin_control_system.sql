@@ -83,13 +83,13 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Seed default settings
 INSERT INTO system_settings (key, value, description, category) VALUES
   ('la_tax_rate',                  '0.1025',             'Los Angeles combined sales tax rate',        'tax'),
-  ('slingshot_daily_rate',         '350',                'Slingshot R daily rate (USD)',               'pricing'),
+  ('vehicle_daily_rate',         '350',                'Vehicle R daily rate (USD)',               'pricing'),
   ('camry_daily_rate',             '55',                 'Camry daily rate (USD)',                     'pricing'),
   ('camry_weekly_rate',            '350',                'Camry weekly rate (USD)',                    'pricing'),
   ('camry_biweekly_rate',          '650',                'Camry bi-weekly rate (USD)',                 'pricing'),
   ('camry_monthly_rate',           '1300',               'Camry monthly rate (USD)',                   'pricing'),
-  ('slingshot_security_deposit',   '150',                'Slingshot refundable security deposit (USD)','pricing'),
-  ('slingshot_booking_deposit',    '50',                 'Slingshot non-refundable booking deposit',   'pricing'),
+  ('vehicle_security_deposit',   '150',                'Vehicle refundable security deposit (USD)','pricing'),
+  ('vehicle_booking_deposit',    '50',                 'Vehicle non-refundable booking deposit',   'pricing'),
   ('auto_block_dates_on_approve',  'true',               'Auto-block vehicle dates when booking approved', 'automation'),
   ('auto_create_revenue_on_pay',   'true',               'Auto-create revenue record when payment received', 'automation'),
   ('auto_update_customer_stats',   'true',               'Auto-update customer stats on booking events','automation'),

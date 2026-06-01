@@ -2,7 +2,7 @@
 -- Bouncie GPS integration.
 --
 -- Changes to vehicles table:
---   bouncie_device_id  — Bouncie IMEI (NULL for slingshots and untracked vehicles)
+--   bouncie_device_id  — Bouncie IMEI (NULL for vehicles and untracked vehicles)
 --   last_synced_at     — timestamp of the last successful Bouncie sync
 --   (mileage column already exists from COMPLETE_SETUP step 1)
 --

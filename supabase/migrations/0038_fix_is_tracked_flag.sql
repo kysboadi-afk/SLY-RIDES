@@ -9,7 +9,7 @@
 -- though they have a valid IMEI.  This caused them to be invisible in the
 -- GPS Tracking page and skipped during Bouncie mileage sync.
 --
--- Note: Slingshot vehicles with an IMEI are also corrected — the slingshot
+-- Note: Vehicle vehicles with an IMEI are also corrected — the vehicle
 -- exclusion is handled at the application layer, not by this flag.
 
 UPDATE vehicles

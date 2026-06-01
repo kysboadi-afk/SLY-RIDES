@@ -1,9 +1,9 @@
--- Migration 0161: Exclude slingshot pre-payment draft statuses from booking
+-- Migration 0161: Exclude vehicle pre-payment draft statuses from booking
 -- conflict detection.
 --
 -- Problem:
 --   The check_booking_conflicts trigger treats ANY non-terminal status as a
---   confirmed booking.  Slingshot bookings pass through several "draft"
+--   confirmed booking.  Vehicle bookings pass through several "draft"
 --   pre-payment states before becoming confirmed:
 --
 --     pending_checkout  → agreement_pending → agreement_signed
@@ -33,14 +33,14 @@ DECLARE
   new_start     timestamptz;
   new_end       timestamptz;
 BEGIN
-  -- Terminal statuses and slingshot pre-payment draft statuses never conflict.
+  -- Terminal statuses and vehicle pre-payment draft statuses never conflict.
   -- Draft rows are not confirmed reservations and must not block the calendar.
   IF NEW.status IN (
     -- Terminal / free-vehicle states
     'cancelled', 'completed', 'completed_rental', 'cancelled_rental',
     -- Failed / abandoned checkout flows
     'abandoned_checkout', 'upload_failed', 'payment_failed',
-    -- Slingshot pre-payment draft states (no confirmed reservation yet)
+    -- Vehicle pre-payment draft states (no confirmed reservation yet)
     'pending_checkout',
     'inquiry_received', 'identity_pending', 'identity_verified',
     'agreement_pending', 'agreement_signed'
@@ -54,7 +54,7 @@ BEGIN
   new_end   := booking_datetime(NEW.return_date, NEW.return_time, true);
 
   -- Check for overlapping CONFIRMED bookings on the same vehicle.
-  -- Exclude terminal statuses and all slingshot draft states so that
+  -- Exclude terminal statuses and all vehicle draft states so that
   -- old abandoned or failed draft rows do not block new reservations.
   SELECT b.id INTO v_conflict_id
   FROM   bookings b

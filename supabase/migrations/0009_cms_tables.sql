@@ -88,14 +88,14 @@ CREATE INDEX IF NOT EXISTS idx_content_blocks_active ON public.content_blocks (a
 CREATE INDEX IF NOT EXISTS idx_content_blocks_sort   ON public.content_blocks (sort_order, created_at);
 
 -- Seed starter FAQ content blocks (only if table is empty).
--- Note: the Slingshot deposit amount ($150) mentioned here matches the current
+-- Note: the Vehicle deposit amount ($150) mentioned here matches the current
 -- pricing in car.js / api/_pricing.js — update this text if pricing changes.
 INSERT INTO public.content_blocks (type, title, body, sort_order, active)
 SELECT type, title, body, sort_order, active FROM (VALUES
   ('faq', 'What is the minimum rental age?',     'The minimum age to rent is 21 years old. A valid driver''s license is required.',                              1, true),
   ('faq', 'Do you offer airport pickup?',         'Yes, we offer pickup and drop-off at major LA area airports. Please contact us to arrange.',                  2, true),
   ('faq', 'What forms of payment do you accept?', 'We accept all major credit cards via Stripe. Payments are processed securely online.',                        3, true),
-  ('faq', 'Is there a security deposit?',         'The Slingshot requires a $150 refundable security deposit collected at pickup. The Camry has no deposit.',    4, true)
+  ('faq', 'Is there a security deposit?',         'The Vehicle requires a $150 refundable security deposit collected at pickup. The Camry has no deposit.',    4, true)
 ) AS v(type, title, body, sort_order, active)
 WHERE NOT EXISTS (SELECT 1 FROM public.content_blocks);
 
