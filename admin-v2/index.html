@@ -3972,9 +3972,15 @@
 window.DEMO_MODE = new URLSearchParams(window.location.search).has('demo');
 
 // ── Configuration ──────────────────────────────────────────────────────────
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const API_BASE = (
+  window.location.hostname === 'localhost'
+  || window.location.hostname === '127.0.0.1'
+  || window.location.hostname === 'slycarrentals.com'
+  || window.location.hostname === 'www.slycarrentals.com'
+  || window.location.hostname === 'admin.slycarrentals.com'
+)
   ? ''
-  : 'https://sly-rides.vercel.app'; // Adjust if deployed to different Vercel URL
+  : 'https://slycarrentals.com';
 
 // Vehicle name/label lookups are populated dynamically from the API in
 // loadVehiclesFromApi() → VEHICLE_NAMES_DYNAMIC.  No hardcoded entries needed.
@@ -4324,7 +4330,12 @@ async function signIn() {
     await establishAdminAppSession();
   } catch (err) {
     clearAdminSession();
-    showAuthError(err.message === 'Unauthorized' ? 'Incorrect password.' : `Error: ${err.message}`);
+    const errMsg = (
+      (err && typeof err.message === 'string' && err.message)
+      || (typeof err === 'string' && err)
+      || 'Sign-in failed. Please check your connection and try again.'
+    );
+    showAuthError(errMsg === 'Unauthorized' ? 'Incorrect password.' : `Error: ${errMsg}`);
   } finally {
     document.getElementById('auth-btn').textContent = 'Sign In';
     document.getElementById('auth-btn').disabled = false;
