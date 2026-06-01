@@ -1214,6 +1214,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         Bookings
         <span class="nav-badge" id="pending-badge" style="display:none">0</span>
+        <span class="nav-badge" id="ext-pay-badge" style="display:none;background:var(--warning);" title="Extension payment pending">💳</span>
       </a>
       <a class="nav-item" data-page="bookings-raw" href="#" onclick="navigate('bookings-raw');return false;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h8M4 18h8"/><rect x="14" y="13" width="8" height="8" rx="1"/></svg>
@@ -6557,6 +6558,13 @@ function loadBookings() {
         if (pendingLf > 0) { lfBadge.style.display = ''; lfBadge.textContent = pendingLf; }
         else { lfBadge.style.display = 'none'; }
       }
+      // Update the extension payment pending badge
+      const extPayBadge = document.getElementById('ext-pay-badge');
+      if (extPayBadge) {
+        const extPayCount = normalizedBookings.filter((b) => b.extensionPaymentPending).length;
+        if (extPayCount > 0) { extPayBadge.style.display = ''; extPayBadge.textContent = extPayCount; }
+        else { extPayBadge.style.display = 'none'; }
+      }
       renderBookings();
     })
     .catch((err) => {
@@ -6672,6 +6680,7 @@ function applyBookingFilters() {
       </td>
       <td>${bookingStatusBadge(b, derived)}
         ${b.lateFeeStatus && b.lateFeeStatus !== 'dismissed' && (b.lateFeeStatus === 'paid' || b.lateFeeStatus === 'failed' || (b.status !== 'completed_rental' && b.status !== 'cancelled_rental')) ? `<div style="margin-top:3px;"><span class="badge" style="background:rgba(249,115,22,0.12);color:#c2410c;font-size:10px;">⏰ Late fee${b.lateFeeAmount != null ? ' $' + formatMoney(b.lateFeeAmount) : ''}${b.lateFeeStatus === 'paid' ? ' ✓ paid' : b.lateFeeStatus === 'approved' ? ' approved' : b.lateFeeStatus === 'failed' ? ' failed' : ' pending'}</span></div>` : ''}
+        ${b.extensionPaymentPending ? `<div style="margin-top:3px;"><span class="badge" style="background:rgba(217,119,6,0.15);color:#92400e;font-size:10px;">💳 Ext pay pending${b.pendingExtensionRemaining != null ? ' $' + formatMoney(b.pendingExtensionRemaining) : ''}</span></div>` : ''}
       </td>
       <td>
         <div class="td-actions">
@@ -7036,7 +7045,7 @@ function viewBooking(bookingId, vehicleId) {
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Email</div><div>${esc(b.email || '–')}${b.email ? ` <a href="mailto:${esc(b.email)}" style="color:var(--primary);text-decoration:none;">✉️</a>` : ''}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Pickup Date</div><div>${esc(b.pickupDate || '–')} ${esc(fmt12h(b.pickupTime || ''))}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Return Date</div><div>${esc(b.returnDate || '–')} ${esc(fmt12h(b.returnTime || ''))}</div></div>
-      <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Status</div><div>${bookingStatusBadge(b, derived)}</div></div>
+      <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Status</div><div>${bookingStatusBadge(b, derived)}${b.extensionPaymentPending ? ' <span class="badge" style="background:rgba(217,119,6,0.15);color:#92400e;font-size:10px;">💳 Ext Pay Pending</span>' : ''}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Payment Method</div><div><span class="badge badge-gray">${esc((b.paymentMethod || 'stripe').toUpperCase())}</span></div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Gross Amount</div><div style="font-weight:700;font-size:16px;">$${formatMoney(b.amountGross != null ? b.amountGross : (b.totalPrice || 0))}</div></div>
       <div><div style="font-size:11px;color:var(--text-sub);text-transform:uppercase;margin-bottom:3px;">Stripe Fee</div><div>${b.stripeFee != null ? '$' + formatMoney(b.stripeFee) : '<span style="color:var(--text-sub);">—</span>'}</div></div>
@@ -7059,6 +7068,18 @@ function viewBooking(bookingId, vehicleId) {
         <button class="btn btn-secondary btn-sm" onclick="closeModal('booking-detail-modal');openLateFeeWaiveModal('${esc(actionBookingId)}',${parseFloat(b.lateFeeAmount) || 0})">🚫 Waive Fee</button>
         <button class="btn btn-danger btn-sm" onclick="closeModal('booking-detail-modal');dismissLateFee('${esc(actionBookingId)}',null)">✗ Dismiss</button>
       </div>` : ''}
+    </div>
+    ` : ''}
+    ${b.extensionPaymentPending ? `
+    <div style="margin-top:14px;padding:12px;background:#fffbeb;border-radius:8px;border:2px solid #d97706;">
+      <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:8px;">💳 Extension Payment Pending</div>
+      <div style="font-size:12px;color:#78350f;margin-bottom:10px;">Renter has requested an extension but payment has <strong>not yet cleared</strong>. Vehicle is blocked and overdue/late-fee logic remains active until payment is confirmed.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:13px;margin-bottom:8px;">
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">New Return Date</span><strong>${b.pendingExtensionReturnDate ? esc(b.pendingExtensionReturnDate) + (b.pendingExtensionReturnTime ? ' ' + esc(fmt12h(b.pendingExtensionReturnTime)) : '') : '<span style="color:var(--text-sub);">—</span>'}</strong></div>
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">Extension Total</span><strong style="color:#92400e;">${b.pendingExtensionAmount != null ? '$' + formatMoney(b.pendingExtensionAmount) : '—'}</strong></div>
+        <div><span style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:2px;">Still Owed</span><strong style="color:var(--danger);">${b.pendingExtensionRemaining != null ? '$' + formatMoney(b.pendingExtensionRemaining) : (b.pendingExtensionAmount != null ? '$' + formatMoney(b.pendingExtensionAmount) : '—')}</strong></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-sub);">Once payment is received via Stripe, the booking dates will update automatically and the vehicle will remain unavailable until the renter physically returns it.</div>
     </div>
     ` : ''}
     <!-- Customer Insight panel -->

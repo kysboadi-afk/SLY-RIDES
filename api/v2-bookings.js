@@ -351,6 +351,8 @@ export default withAdminAuth(async function handler(req, res) {
           deleted_by,
           deleted_reason,
           extension_risk_override,
+          extend_pending,
+          extension_pending_payment,
           customers ( id, name, phone, email, risk_flag, flagged, banned, total_profit, total_bookings, no_show_count )
         `;
 
@@ -553,6 +555,12 @@ export default withAdminAuth(async function handler(req, res) {
               deletedBy:       r.deleted_by || null,
               deletedReason:   r.deleted_reason || null,
               extensionRiskOverride: r.extension_risk_override || null,
+              extensionPaymentPending: !!r.extend_pending,
+              pendingExtensionReturnDate: r.extension_pending_payment?.newReturnDate || null,
+              pendingExtensionReturnTime: r.extension_pending_payment?.newReturnTime || null,
+              pendingExtensionAmount:     r.extension_pending_payment?.extensionTotal != null ? Number(r.extension_pending_payment.extensionTotal) : null,
+              pendingExtensionPaid:       r.extension_pending_payment?.amountPaid != null ? Number(r.extension_pending_payment.amountPaid) : null,
+              pendingExtensionRemaining:  r.extension_pending_payment?.remainingBalance != null ? Number(r.extension_pending_payment.remainingBalance) : null,
               _source:         "supabase",
             };
           });
