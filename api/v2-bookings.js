@@ -1724,6 +1724,7 @@ export default withAdminAuth(async function handler(req, res) {
         vehicleId, name, phone, email,
         pickupDate, pickupTime, returnDate, returnTime,
         amountPaid, totalPrice, paymentMethod, paymentIntentId, notes,
+        paymentStatus,
       } = body;
 
       if (!vehicleId || !ALLOWED_VEHICLES.includes(vehicleId)) {
@@ -1771,7 +1772,12 @@ export default withAdminAuth(async function handler(req, res) {
         }
       }
 
-      const parsedAmount = typeof amountPaid === "number" ? amountPaid : parseFloat(amountPaid) || 0;
+      const parsedAmount = (() => {
+        // When admin explicitly marks the booking as unpaid, force amountPaid to 0
+        // regardless of what was entered in the form.
+        if (paymentStatus === "unpaid") return 0;
+        return typeof amountPaid === "number" ? amountPaid : parseFloat(amountPaid) || 0;
+      })();
       const parsedTotal  = typeof totalPrice === "number" ? totalPrice  : parseFloat(totalPrice)  || 0;
       const bookingId    = crypto.randomBytes(8).toString("hex");
 
@@ -1795,6 +1801,8 @@ export default withAdminAuth(async function handler(req, res) {
         returnDate,
         returnTime:     trimmedReturnTime,
         amountPaid:     Math.round(parsedAmount * 100) / 100,
+        // For unpaid bookings, totalPrice must be set to the full rental amount so
+        // the renter can pay the outstanding balance through manage-booking.
         totalPrice:     Math.round((parsedTotal || parsedAmount) * 100) / 100,
         paymentMethod:  typeof paymentMethod    === "string" ? paymentMethod.trim()    : "cash",
         paymentIntentId: resolvedPaymentIntentId,

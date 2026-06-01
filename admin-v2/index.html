@@ -1744,6 +1744,13 @@
                 <div class="form-hint">Based on vehicle &amp; dates</div>
               </div>
               <div class="form-group">
+                <label class="form-label">Payment Status</label>
+                <select class="form-select" id="mb-payment-status" onchange="onManualPaymentStatusChange()">
+                  <option value="paid">Paid</option>
+                  <option value="unpaid">Unpaid – renter pays later</option>
+                </select>
+              </div>
+              <div class="form-group" id="mb-amount-paid-group">
                 <label class="form-label">Amount Paid (Override)</label>
                 <input type="number" class="form-input" id="mb-amount-paid" min="0" step="0.01" placeholder="Leave blank to use auto-price">
               </div>
@@ -7820,9 +7827,19 @@ async function submitManualBooking(e) {
   const pickupTimeRaw = document.getElementById('mb-pickup-time').value;
   const returnTimeRaw = document.getElementById('mb-return-time').value;
   const autoText   = document.getElementById('mb-auto-price').textContent;
-  const overrideAmount = parseFloat(document.getElementById('mb-amount-paid').value);
   const autoAmount = autoText !== '–' ? parseFloat(autoText.replace(/\$/g, '').replace(/,/g, '')) : 0;
-  const amountPaid = !isNaN(overrideAmount) && overrideAmount >= 0 ? overrideAmount : autoAmount;
+  const paymentStatus = document.getElementById('mb-payment-status').value;
+  const isUnpaid = paymentStatus === 'unpaid';
+
+  // When booking is marked unpaid, ignore any amount-paid entry; the renter
+  // will pay the full balance later through manage-booking.
+  let amountPaid;
+  if (isUnpaid) {
+    amountPaid = 0;
+  } else {
+    const overrideAmount = parseFloat(document.getElementById('mb-amount-paid').value);
+    amountPaid = !isNaN(overrideAmount) && overrideAmount >= 0 ? overrideAmount : autoAmount;
+  }
 
   const formatTime = (val) => {
     if (!val) return '';
@@ -7852,8 +7869,11 @@ async function submitManualBooking(e) {
       returnDate,
       returnTime:     formatTime(returnTimeRaw),
       amountPaid,
+      // Always send the full auto-calculated price as totalPrice so manage-booking
+      // knows the outstanding balance when the booking is unpaid.
       totalPrice:     autoAmount || amountPaid,
       paymentMethod:  document.getElementById('mb-payment-method').value,
+      paymentStatus,
       notes:          document.getElementById('mb-notes').value.trim(),
     });
 
@@ -7866,6 +7886,20 @@ async function submitManualBooking(e) {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 13l4 4L19 7"/></svg> Save Booking';
+  }
+}
+
+function onManualPaymentStatusChange() {
+  const isUnpaid = document.getElementById('mb-payment-status').value === 'unpaid';
+  const amountGroup = document.getElementById('mb-amount-paid-group');
+  const amountInput = document.getElementById('mb-amount-paid');
+  if (isUnpaid) {
+    amountGroup.style.opacity = '0.4';
+    amountGroup.style.pointerEvents = 'none';
+    amountInput.value = '';
+  } else {
+    amountGroup.style.opacity = '';
+    amountGroup.style.pointerEvents = '';
   }
 }
 

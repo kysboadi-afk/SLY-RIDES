@@ -292,7 +292,7 @@ export async function autoCreateRevenueRecord(booking, opts = {}) {
       deposit_amount:      0,
       refund_amount:       0,
       payment_method:      booking.paymentMethod || "stripe",
-      payment_status:      "paid",
+      payment_status:      gross > 0 ? "paid" : "unpaid",
       type:                recordType,
       notes:               booking.notes || null,
       is_no_show:          false,
