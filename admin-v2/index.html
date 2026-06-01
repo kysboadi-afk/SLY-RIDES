@@ -16279,6 +16279,219 @@ async function deletePaymentPlan(planId) {
     showToast('Failed to delete plan: ' + err.message, 'error');
   }
 }
+
+// ── Balance Ledger page ────────────────────────────────────────────────────
+let currentLedgerBookingId = null;
+let currentLedgerRemainingBalance = 0;
+
+function initBalanceLedgerPage() {
+  const input = document.getElementById('bl-booking-search');
+  if (input) input.focus();
+}
+
+async function loadBalanceLedger() {
+  const input = document.getElementById('bl-booking-search');
+  const bookingId = (input ? input.value : '').trim();
+  if (!bookingId) { showToast('Enter a Booking ID first.', 'error'); return; }
+
+  const loading    = document.getElementById('bl-loading');
+  const tableWrap  = document.getElementById('bl-table-wrap');
+  const emptyEl    = document.getElementById('bl-empty');
+  const placeholder = document.getElementById('bl-placeholder');
+  const summaryRow = document.getElementById('bl-summary-row');
+  const createBtn  = document.getElementById('bl-create-plan-btn');
+
+  if (loading)    loading.style.display    = '';
+  if (tableWrap)  tableWrap.style.display  = 'none';
+  if (emptyEl)    emptyEl.style.display    = 'none';
+  if (placeholder) placeholder.style.display = 'none';
+  if (summaryRow) summaryRow.style.display = 'none';
+  if (createBtn)  createBtn.style.display  = 'none';
+
+  try {
+    const [summaryData, historyData] = await Promise.all([
+      apiPost('/api/renter-balance-ledger', { secret: adminSessionToken, action: 'summary', booking_id: bookingId }),
+      apiPost('/api/renter-balance-ledger', { secret: adminSessionToken, action: 'history', booking_id: bookingId }),
+    ]);
+
+    currentLedgerBookingId = bookingId;
+    const summary = summaryData.summary || {};
+    const transactions = Array.isArray(historyData.transactions) ? historyData.transactions : [];
+    const remaining = Number(summary.remaining_balance || 0);
+    currentLedgerRemainingBalance = remaining;
+
+    // Update summary cards
+    const fmt = (v) => '$' + Number(v || 0).toFixed(2);
+    const el = (id) => document.getElementById(id);
+    if (el('bl-total-charges')) el('bl-total-charges').textContent = fmt(summary.total_charges);
+    if (el('bl-total-paid'))    el('bl-total-paid').textContent    = fmt(summary.total_paid);
+    if (el('bl-total-waived'))  el('bl-total-waived').textContent  = fmt(summary.total_waived);
+    if (el('bl-remaining'))     el('bl-remaining').textContent     = fmt(remaining);
+    if (summaryRow) { summaryRow.style.display = 'flex'; }
+    if (createBtn)  { createBtn.style.display = remaining > 0 ? '' : 'none'; }
+
+    // Render table
+    const tbody = document.getElementById('bl-tbody');
+    if (tbody) {
+      if (transactions.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+      } else {
+        tbody.innerHTML = transactions.map((tx) => {
+          const date = tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—';
+          const typeLabel = String(tx.transaction_type || '').replace(/_/g, ' ');
+          const direction = tx.direction || '—';
+          const amount = '$' + Number(tx.amount || 0).toFixed(2);
+          const running = tx.running_balance != null ? '$' + Number(tx.running_balance).toFixed(2) : '—';
+          const notes = esc(tx.notes || '');
+          const createdBy = esc(tx.created_by || '');
+          const dueDate = tx.due_date ? String(tx.due_date).slice(0, 10) : '—';
+          const dirClass = direction === 'credit' ? 'color:var(--success)' : 'color:var(--danger)';
+          return `<tr>
+            <td>${esc(date)}</td>
+            <td style="text-transform:capitalize;">${esc(typeLabel)}</td>
+            <td style="${dirClass};font-weight:600;text-transform:capitalize;">${esc(direction)}</td>
+            <td style="font-family:monospace;">${esc(amount)}</td>
+            <td style="font-family:monospace;">${esc(running)}</td>
+            <td style="max-width:260px;white-space:normal;">${notes}</td>
+            <td>${createdBy}</td>
+            <td>${esc(dueDate)}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="editLedgerEntry(${JSON.stringify(tx)})">Edit</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="deleteLedgerEntry('${esc(tx.id || '')}')">Del</button>
+            </td>
+          </tr>`;
+        }).join('');
+        if (tableWrap) tableWrap.style.display = '';
+      }
+    }
+  } catch (err) {
+    showToast('Failed to load ledger: ' + err.message, 'error');
+    if (placeholder) placeholder.style.display = '';
+    currentLedgerBookingId = null;
+  } finally {
+    if (loading) loading.style.display = 'none';
+  }
+}
+
+function openAddChargeModal() {
+  const bookingInput = document.getElementById('ac-booking-id');
+  if (bookingInput) bookingInput.value = currentLedgerBookingId || '';
+  const typeEl = document.getElementById('ac-type');
+  if (typeEl) typeEl.value = '';
+  const amountEl = document.getElementById('ac-amount');
+  if (amountEl) amountEl.value = '';
+  const dueDateEl = document.getElementById('ac-due-date');
+  if (dueDateEl) dueDateEl.value = '';
+  const notesEl = document.getElementById('ac-notes');
+  if (notesEl) notesEl.value = '';
+  const btn = document.getElementById('ac-submit-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Add Charge'; }
+  openModal('add-charge-modal');
+}
+
+async function saveCharge() {
+  const bookingId = (document.getElementById('ac-booking-id')?.value || '').trim();
+  const type      = (document.getElementById('ac-type')?.value || '').trim();
+  const amount    = parseFloat(document.getElementById('ac-amount')?.value || '0');
+  const dueDate   = (document.getElementById('ac-due-date')?.value || '').trim() || null;
+  const notes     = (document.getElementById('ac-notes')?.value || '').trim() || null;
+
+  if (!bookingId) { showToast('Booking ID is required.', 'error'); return; }
+  if (!type)      { showToast('Category is required.', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Amount must be a positive number.', 'error'); return; }
+
+  const btn = document.getElementById('ac-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'add_charge',
+      booking_id: bookingId,
+      transaction_type: type,
+      amount,
+      due_date: dueDate,
+      notes,
+      created_by: 'admin',
+    });
+    closeModal('add-charge-modal');
+    showToast('Charge added to ledger.', 'success');
+    currentLedgerBookingId = bookingId;
+    const input = document.getElementById('bl-booking-search');
+    if (input) input.value = bookingId;
+    await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to add charge: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add Charge'; }
+  }
+}
+
+function sendPaymentLinkFromLedger() {
+  if (!currentLedgerBookingId) { showToast('Load a booking ledger first.', 'error'); return; }
+  sendPaymentLinkForBooking(currentLedgerBookingId, { sendEmail: true });
+}
+
+function editLedgerEntry(tx) {
+  if (!tx || !tx.id) { showToast('Cannot edit this entry.', 'error'); return; }
+  const el = (id) => document.getElementById(id);
+  if (el('el-id'))       el('el-id').value       = tx.id;
+  if (el('el-type'))     el('el-type').value      = tx.transaction_type || '';
+  if (el('el-amount'))   el('el-amount').value    = Number(tx.amount || 0).toFixed(2);
+  if (el('el-due-date')) el('el-due-date').value  = tx.due_date ? String(tx.due_date).slice(0, 10) : '';
+  if (el('el-notes'))    el('el-notes').value     = tx.notes || '';
+  const btn = document.getElementById('el-submit-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  openModal('edit-ledger-modal');
+}
+
+async function saveEditLedger() {
+  const id      = (document.getElementById('el-id')?.value || '').trim();
+  const type    = (document.getElementById('el-type')?.value || '').trim();
+  const amount  = parseFloat(document.getElementById('el-amount')?.value || '0');
+  const dueDate = (document.getElementById('el-due-date')?.value || '').trim() || null;
+  const notes   = (document.getElementById('el-notes')?.value || '').trim() || null;
+
+  if (!id)     { showToast('Entry ID missing.', 'error'); return; }
+  if (!type)   { showToast('Category is required.', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Amount must be a positive number.', 'error'); return; }
+
+  const btn = document.getElementById('el-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'update_transaction',
+      id,
+      transaction_type: type,
+      amount,
+      due_date: dueDate,
+      notes,
+    });
+    closeModal('edit-ledger-modal');
+    showToast('Ledger entry updated.', 'success');
+    if (currentLedgerBookingId) await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to update entry: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  }
+}
+
+async function deleteLedgerEntry(id) {
+  if (!id) { showToast('Entry ID missing.', 'error'); return; }
+  if (!confirm('Delete this ledger entry? This cannot be undone.')) return;
+  try {
+    await apiPost('/api/renter-balance-ledger', {
+      secret: adminSessionToken,
+      action: 'delete_transaction',
+      id,
+    });
+    showToast('Ledger entry deleted.', 'success');
+    if (currentLedgerBookingId) await loadBalanceLedger();
+  } catch (err) {
+    showToast('Failed to delete entry: ' + err.message, 'error');
+  }
+}
 </script>
 
 <script src="voice-assistant.js"></script>
