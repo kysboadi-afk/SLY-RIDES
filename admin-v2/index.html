@@ -16317,6 +16317,7 @@ async function deletePaymentPlan(planId) {
 // ── Balance Ledger page ────────────────────────────────────────────────────
 let currentLedgerBookingId = null;
 let currentLedgerRemainingBalance = 0;
+let pendingChargeRequestId = null;
 
 function initBalanceLedgerPage() {
   const input = document.getElementById('bl-booking-search');
@@ -16408,6 +16409,7 @@ async function loadBalanceLedger() {
 }
 
 function openAddChargeModal() {
+  pendingChargeRequestId = crypto.randomUUID();
   const bookingInput = document.getElementById('ac-booking-id');
   if (bookingInput) bookingInput.value = currentLedgerBookingId || '';
   const typeEl = document.getElementById('ac-type');
@@ -16446,6 +16448,7 @@ async function saveCharge() {
       due_date: dueDate,
       notes,
       created_by: 'admin',
+      charge_request_id: pendingChargeRequestId,
     });
     closeModal('add-charge-modal');
     showToast('Charge added to ledger.', 'success');
