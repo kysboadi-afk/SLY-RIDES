@@ -401,6 +401,68 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
         };
       }
 
+      function createResendConfirmationSupabaseMock({ bookings = [], pendingDocs = [] } = {}) {
+        const bookingRows = bookings.map((row) => ({ ...row }));
+        const pendingRows = pendingDocs.map((row) => ({ ...row }));
+
+        return {
+          storage: {
+            from(bucket) {
+              if (bucket !== "rental-agreements") {
+                throw new Error(`Unexpected storage bucket: ${bucket}`);
+              }
+              return {
+                async download(path) {
+                  return { data: new Blob([`pdf:${path}`], { type: "application/pdf" }), error: null };
+                },
+                async upload() {
+                  return { error: null };
+                },
+              };
+            },
+          },
+          from(table) {
+            if (table === "bookings") {
+              const filters = [];
+              return {
+                select() { return this; },
+                eq(column, value) {
+                  filters.push((row) => row[column] === value);
+                  return this;
+                },
+                async maybeSingle() {
+                  const match = bookingRows.find((row) => filters.every((fn) => fn(row)));
+                  return { data: match || null, error: null };
+                },
+              };
+            }
+
+            if (table === "pending_booking_docs") {
+              const filters = [];
+              return {
+                select() { return this; },
+                eq(column, value) {
+                  filters.push((row) => row[column] === value);
+                  return this;
+                },
+                async maybeSingle() {
+                  const match = pendingRows.find((row) => filters.every((fn) => fn(row)));
+                  return { data: match || null, error: null };
+                },
+                async upsert(row) {
+                  const idx = pendingRows.findIndex((item) => item.booking_id === row.booking_id);
+                  if (idx >= 0) pendingRows[idx] = { ...pendingRows[idx], ...row };
+                  else pendingRows.push({ ...row });
+                  return { error: null };
+                },
+              };
+            }
+
+            throw new Error(`Unexpected table: ${table}`);
+          },
+        };
+      }
+
       if (table === "sms_logs") {
         const filters = {};
         return {
@@ -1907,6 +1969,79 @@ test("send_payment_link: customerId path resolves latest booking and supports em
   assert.match(String(sentEmails[0].html || ""), /bk-customer-newer/);
   assert.match(String(sentEmails[0].html || ""), /manage-booking\.html/, "email should link to manage-booking dashboard");
   assert.ok(res._body?.manageLink, "response should include manageLink");
+});
+
+test("resend_confirmation: uses latest Supabase booking details when bookings.json is stale", async () => {
+  resetStore(); resetCalls();
+  process.env.SMTP_HOST = "smtp.test.invalid";
+  process.env.SMTP_PORT = "587";
+  process.env.SMTP_USER = "test@test.invalid";
+  process.env.SMTP_PASS = "test-password";
+  process.env.OWNER_EMAIL = "owner@test.invalid";
+
+  bookingsStore.camry = [{
+    bookingId: "bk-resend-001",
+    vehicleId: "camry",
+    vehicleName: "Camry 2012",
+    name: "Old Name",
+    email: "old@example.com",
+    phone: "+13105550000",
+    pickupDate: "2026-06-01",
+    pickupTime: "10:00 AM",
+    returnDate: "2026-06-05",
+    returnTime: "10:00 AM",
+    amountPaid: 150,
+    totalPrice: 300,
+    status: "booked_paid",
+    paymentIntentId: "pi_resend_001",
+    notes: "old notes",
+  }];
+
+  supabaseMockState.client = createResendConfirmationSupabaseMock({
+    bookings: [{
+      id: 101,
+      booking_ref: "bk-resend-001",
+      vehicle_id: "camry",
+      pickup_date: "2026-06-01",
+      pickup_time: "10:00 AM",
+      return_date: "2026-06-10",
+      return_time: "12:00 PM",
+      total_price: 325,
+      deposit_paid: 200,
+      status: "booked_paid",
+      payment_intent_id: "pi_resend_001",
+      payment_status: "paid",
+      payment_method: "stripe",
+      notes: "updated notes",
+      customer_name: "Updated Name",
+      customer_phone: "+13105559999",
+      customer_email: "updated@example.com",
+      renter_phone: "+13105559999",
+      customers: { name: "Updated Name", phone: "+13105559999", email: "updated@example.com" },
+    }],
+    pendingDocs: [{
+      booking_id: "bk-resend-001",
+      agreement_pdf_url: "bk-resend-001/agreement.pdf",
+      email_sent: false,
+    }],
+  });
+
+  const res = makeRes();
+  await handler(makeReq({
+    secret: "test-admin-secret",
+    action: "resend_confirmation",
+    bookingId: "bk-resend-001",
+  }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(sentEmails.length, 2, "owner and customer emails should both be sent");
+  assert.equal(sentEmails[1].to, "updated@example.com", "customer email should use the updated address");
+  const ownerHtml = String(sentEmails[0].html || "");
+  const customerHtml = String(sentEmails[1].html || "");
+  assert.match(ownerHtml, /2026-06-10/, "owner email should include updated return date");
+  assert.match(customerHtml, /2026-06-10/, "customer email should include updated return date");
+  assert.doesNotMatch(ownerHtml, /2026-06-05/, "stale return date must not be used");
+  assert.doesNotMatch(customerHtml, /old@example\.com/, "stale customer email must not be used in customer content");
 });
 
 test("send_payment_link: duplicate sends are deduped by sms_logs key", async () => {

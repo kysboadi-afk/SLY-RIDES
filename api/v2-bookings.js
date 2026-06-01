@@ -224,6 +224,32 @@ function normalizeStoredDocBase64(base64Value) {
   return base64Value.replace(/\s+/g, "").replace(/^data:.*;base64,/, "");
 }
 
+function mergeBookingConfirmationSource(existingBooking = null, row = null) {
+  if (!row) return existingBooking;
+  const cust = row.customers || {};
+  const nextVehicleId = uiVehicleId(row.vehicle_id || existingBooking?.vehicleId || "");
+  return {
+    ...(existingBooking || {}),
+    bookingId:       row.booking_ref || existingBooking?.bookingId || "",
+    vehicleId:       nextVehicleId || existingBooking?.vehicleId || "",
+    vehicleName:     VEHICLE_NAMES[nextVehicleId] || existingBooking?.vehicleName || row.vehicle_id || "",
+    name:            row.customer_name || cust.name || existingBooking?.name || "",
+    email:           row.customer_email || cust.email || existingBooking?.email || "",
+    phone:           row.customer_phone || row.renter_phone || cust.phone || existingBooking?.phone || "",
+    pickupDate:      row.pickup_date || existingBooking?.pickupDate || "",
+    pickupTime:      row.pickup_time || existingBooking?.pickupTime || "",
+    returnDate:      row.return_date || existingBooking?.returnDate || "",
+    returnTime:      row.return_time || existingBooking?.returnTime || "",
+    amountPaid:      row.deposit_paid != null ? Number(row.deposit_paid || 0) : Number(existingBooking?.amountPaid || 0),
+    totalPrice:      row.total_price != null ? Number(row.total_price || 0) : Number(existingBooking?.totalPrice || 0),
+    status:          row.status ? toAppBookingStatus(row.status) : (existingBooking?.status || ""),
+    paymentIntentId: row.payment_intent_id || existingBooking?.paymentIntentId || "",
+    paymentStatus:   row.payment_status || existingBooking?.paymentStatus || "",
+    paymentMethod:   row.payment_method || existingBooking?.paymentMethod || "",
+    notes:           row.notes ?? existingBooking?.notes ?? "",
+  };
+}
+
 function ghHeaders() {
   const token = process.env.GITHUB_TOKEN;
   const headers = {
@@ -1831,47 +1857,45 @@ export default withAdminAuth(async function handler(req, res) {
         if (found) { booking = found; break; }
       }
 
-      // Fallback: look up Supabase for bookings not present in bookings.json
-      if (!booking) {
-        try {
-          const sbLookup = getSupabaseAdmin();
-          if (sbLookup) {
-            const { data: sbRow } = await sbLookup
-              .from("bookings")
-              .select(`
-                booking_ref, vehicle_id, pickup_date, return_date,
-                pickup_time, return_time, status, total_price, deposit_paid,
-                payment_intent_id, notes,
-                customers ( name, phone, email )
-              `)
-              .eq("booking_ref", bookingId)
-              .maybeSingle();
-            if (sbRow) {
-              const cust = sbRow.customers || {};
-              const vid = uiVehicleId(sbRow.vehicle_id);
-              booking = {
-                bookingId:       sbRow.booking_ref,
-                vehicleId:       vid,
-                vehicleName:     VEHICLE_NAMES[vid] || sbRow.vehicle_id || "",
-                name:            cust.name  || "",
-                email:           cust.email || "",
-                phone:           cust.phone || "",
-                pickupDate:      sbRow.pickup_date  || "",
-                pickupTime:      sbRow.pickup_time  || "",
-                returnDate:      sbRow.return_date  || "",
-                returnTime:      sbRow.return_time  || "",
-                amountPaid:      Number(sbRow.deposit_paid || 0),
-                totalPrice:      Number(sbRow.total_price  || 0),
-                status:          toAppBookingStatus(sbRow.status),
-                paymentIntentId: sbRow.payment_intent_id || "",
-                notes:           sbRow.notes || "",
-              };
+      // Overlay the latest persisted booking data from Supabase so edits made in
+      // admin are reflected immediately even if bookings.json lags behind.
+      try {
+        const sbLookup = getSupabaseAdmin();
+        if (sbLookup) {
+          const bookingSelect = `
+            booking_ref, vehicle_id, pickup_date, return_date,
+            pickup_time, return_time, status, total_price, deposit_paid,
+            payment_intent_id, payment_status, payment_method, notes,
+            customer_name, customer_phone, customer_email, renter_phone,
+            customers ( name, phone, email )
+          `;
+          let sbRow = null;
+          const { data: byRefRow } = await sbLookup
+            .from("bookings")
+            .select(bookingSelect)
+            .eq("booking_ref", bookingId)
+            .maybeSingle();
+          sbRow = byRefRow || null;
+          if (!sbRow) {
+            const numericBookingId = parseInt(bookingId, 10);
+            if (!Number.isNaN(numericBookingId)) {
+              const { data: byIdRow } = await sbLookup
+                .from("bookings")
+                .select(bookingSelect)
+                .eq("id", numericBookingId)
+                .maybeSingle();
+              sbRow = byIdRow || null;
+            }
+          }
+          if (sbRow) {
+            booking = mergeBookingConfirmationSource(booking, sbRow);
+            if (booking?.bookingId === bookingId && !Object.values(bData).some((list) => Array.isArray(list) && list.some((b) => b.bookingId === bookingId))) {
               console.log(`v2-bookings resend_confirmation: found booking ${bookingId} in Supabase (not in bookings.json)`);
             }
           }
-        } catch (sbLookupErr) {
-          console.warn("v2-bookings resend_confirmation: Supabase fallback lookup failed (non-fatal):", sbLookupErr.message);
         }
+      } catch (sbLookupErr) {
+        console.warn("v2-bookings resend_confirmation: Supabase fallback lookup failed (non-fatal):", sbLookupErr.message);
       }
 
       if (!booking) return res.status(404).json({ error: `No booking found with ID "${bookingId}"` });
