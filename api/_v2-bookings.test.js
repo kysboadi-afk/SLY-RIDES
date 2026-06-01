@@ -1243,6 +1243,7 @@ test("update: returnDate and returnTime are accepted and persisted", async () =>
   const createRes = makeRes();
   await handler(makeReq(createPayload({ amountPaid: 300, pickupDate: "2026-04-01", returnDate: "2026-04-07" })), createRes);
   const bookingId = createRes._body.booking.bookingId;
+  const smsCountBeforeUpdate = smsCalls.length;
 
   // Update the return date (simulates admin correcting an extension)
   const updateRes = makeRes();
@@ -1257,6 +1258,11 @@ test("update: returnDate and returnTime are accepted and persisted", async () =>
   assert.equal(updateRes._status, 200, "update should succeed");
   assert.equal(updateRes._body.booking.returnDate, "2026-04-10", "returnDate should be updated");
   assert.equal(updateRes._body.booking.returnTime, "5:00 PM", "returnTime should be updated");
+  assert.equal(smsCalls.length, smsCountBeforeUpdate + 1, "date update should send one SMS");
+  const updateSms = smsCalls.at(-1);
+  assert.match(updateSms.body, /Sly Car Rentals booking update:/);
+  assert.match(updateSms.body, /Pickup: 2026-04-01/);
+  assert.match(updateSms.body, /Return: 2026-04-10 at 5:00 PM/);
   // autoUpsertBooking should have been called to sync to Supabase
   assert.ok(automationCalls.booking.length > 0, "Supabase booking sync should be triggered");
 });
