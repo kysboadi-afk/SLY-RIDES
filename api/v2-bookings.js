@@ -948,6 +948,7 @@ export default withAdminAuth(async function handler(req, res) {
       const hasPaymentMethodUpdate = safeUpdates.paymentMethod !== undefined;
       const hasNotesUpdate = safeUpdates.notes !== undefined;
       const hasVehicleUpdate = safeUpdates.vehicleId !== undefined;
+      const hasDateScheduleUpdate = safeUpdates.pickupDate !== undefined || safeUpdates.pickupTime !== undefined || safeUpdates.returnDate !== undefined || safeUpdates.returnTime !== undefined;
       if (sbInstance && (safeUpdates.status || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasNotesUpdate || hasVehicleUpdate)) {
         const dbStatus = safeUpdates.status ? APP_TO_DB_STATUS[safeUpdates.status] : null;
         if (dbStatus || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasNotesUpdate || hasVehicleUpdate) {
@@ -1430,6 +1431,42 @@ export default withAdminAuth(async function handler(req, res) {
           );
         } catch (err) {
           console.error("v2-bookings: unblockBookedDates failed (non-fatal):", err.message);
+        }
+      }
+
+      // Notify renter immediately when booking dates are edited (e.g. return date updates).
+      if (
+        updatedBooking &&
+        hasDateScheduleUpdate &&
+        shouldSendBookingLifecycleSms("v2_bookings") &&
+        updatedBooking.phone &&
+        process.env.TEXTMAGIC_USERNAME &&
+        process.env.TEXTMAGIC_API_KEY
+      ) {
+        try {
+          const pickupLine = `${updatedBooking.pickupDate || "N/A"}${updatedBooking.pickupTime ? ` at ${updatedBooking.pickupTime}` : ""}`;
+          const returnLine = `${updatedBooking.returnDate || "N/A"}${updatedBooking.returnTime ? ` at ${updatedBooking.returnTime}` : ""}`;
+          await sendDedupedSms({
+            bookingId: updatedBooking.bookingId || updatedBooking.paymentIntentId,
+            templateKey: "booking_dates_updated",
+            phone: updatedBooking.phone,
+            body:
+              "Sly Car Rentals booking update:\n" +
+              `Pickup: ${pickupLine}\n` +
+              `Return: ${returnLine}\n\n` +
+              "Manage Booking:\nhttps://slycarrentals.com/manage-booking.html\n\n" +
+              "Reply STOP to opt out.",
+            returnDateAtSend: updatedBooking.returnDate || "9999-12-31",
+            metadata: {
+              source: "v2_bookings_update",
+              pickup_date: updatedBooking.pickupDate || null,
+              pickup_time: updatedBooking.pickupTime || null,
+              return_date: updatedBooking.returnDate || null,
+              return_time: updatedBooking.returnTime || null,
+            },
+          });
+        } catch (smsErr) {
+          console.error("v2-bookings: booking date update SMS failed (non-fatal):", smsErr.message);
         }
       }
 
