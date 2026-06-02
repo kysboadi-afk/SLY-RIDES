@@ -903,7 +903,7 @@ function buildWebsiteUpsellKpis(leads) {
 }
 
 export default withAdminAuth(async function handler(req, res) {
-  const { action = "list" } = req.body || {};
+  const { action = "list", scope } = req.body || {};
   const supabase = getSupabaseAdmin();
   const supabaseUrlHost = (() => {
     try {
@@ -915,10 +915,13 @@ export default withAdminAuth(async function handler(req, res) {
 
   console.log("[v2-operator-leads] request context", {
     action,
+    scope,
     supabaseUrlHost,
     supabaseUrlPresent: Boolean(process.env.SUPABASE_URL),
     supabaseServiceRoleKeyPresent: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
   });
+  console.log("[v2-operator-leads] action", action);
+  console.log("[v2-operator-leads] scope", scope);
 
   if (action === "list") {
     if (!supabase) return res.status(200).json({ leads: [] });
@@ -936,6 +939,8 @@ export default withAdminAuth(async function handler(req, res) {
       return sendError(res, 500, "Failed to load operator leads.");
     }
     const leads = Array.isArray(data) ? data : [];
+    console.log("[v2-operator-leads] query result count", leads?.length);
+    console.log("[v2-operator-leads] first row", leads?.[0]);
     const organizationIds = [...new Set(leads.map((lead) => lead?.organization_id).filter(Boolean))];
     const websiteStateByOrg = new Map();
     if (organizationIds.length) {
