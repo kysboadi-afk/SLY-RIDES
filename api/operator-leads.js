@@ -452,6 +452,13 @@ export default async function handler(req, res) {
     onboarding_progress: withFunnelTimestamp({}, "lead_submitted_at", leadSubmittedAt),
   };
 
+  console.log('[operator-leads] CLIENT CHECK', {
+    hasUrl: !!process.env.SUPABASE_URL,
+    hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    serviceRolePrefix:
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 30),
+  });
+
   const { data, error } = await logSupabaseCall("lead_insert", supabase
     .from("operator_leads")
     .insert(payload)
