@@ -137,6 +137,9 @@ function createSupabaseClient() {
       }
       throw new Error(`Unexpected table: ${table}`);
     },
+    async rpc(_name, _args) {
+      return { data: null, error: null };
+    },
   };
 }
 
@@ -212,7 +215,7 @@ test("logs Supabase env presence booleans without secrets", async (t) => {
   const res = makeRes();
   await handler(makeReq("POST", validBody()), res);
 
-  assert.equal(infoSpy.mock.callCount(), 1);
+  assert.equal(infoSpy.mock.callCount(), 3);
   assert.deepEqual(infoSpy.mock.calls[0].arguments, [
     "operator-leads Supabase env presence",
     {

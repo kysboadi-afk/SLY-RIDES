@@ -285,6 +285,40 @@ export default async function handler(req, res) {
     });
   }
 
+  // ── Runtime role diagnostic ────────────────────────────────────────────────
+  // Logs the DB role the connection is authenticated as.
+  // If current_user/current_role shows "anon" or "authenticated" instead of
+  // "service_role", the SUPABASE_SERVICE_ROLE_KEY env var is wrong or stale.
+  {
+    const supabaseUrl = process.env.SUPABASE_URL || "";
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    console.info("[operator-leads] ROLE DIAGNOSTIC env", {
+      SUPABASE_URL_PREFIX: supabaseUrl.slice(0, 40) || "(empty)",
+      SERVICE_ROLE_KEY_PREFIX: serviceRoleKey.slice(0, 20) || "(empty)",
+      SERVICE_ROLE_KEY_LENGTH: serviceRoleKey.length,
+      appEnv: process.env.APP_ENV || null,
+    });
+
+    try {
+      // Attempt to call a helper RPC that returns the current DB user/role.
+      // Create this function in Supabase SQL editor if it does not exist:
+      //   CREATE OR REPLACE FUNCTION current_role_check()
+      //   RETURNS json LANGUAGE sql SECURITY DEFINER AS $$
+      //     SELECT json_build_object('current_user', current_user, 'current_role', current_role);
+      //   $$;
+      const { data: roleData, error: roleError } = await supabase.rpc("current_role_check");
+      console.info("[operator-leads] ROLE DIAGNOSTIC db", {
+        roleData: roleData ?? null,
+        roleError: roleError ? formatSupabaseError(roleError) : null,
+      });
+    } catch (roleErr) {
+      console.warn("[operator-leads] ROLE DIAGNOSTIC rpc threw", {
+        message: String(roleErr?.message || roleErr),
+      });
+    }
+  }
+  // ── End role diagnostic ────────────────────────────────────────────────────
+
   const notes = normalizeText(
     [
       `priority=${normalizedPriority}`,
