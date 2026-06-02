@@ -137,6 +137,9 @@ function createSupabaseClient() {
       }
       throw new Error(`Unexpected table: ${table}`);
     },
+    async rpc(_name, _args) {
+      return { data: null, error: null };
+    },
   };
 }
 
@@ -220,6 +223,35 @@ test("logs Supabase env presence booleans without secrets", async (t) => {
       supabaseServiceRoleKeyPresent: false,
       appEnv: "preview",
     },
+  ]);
+});
+
+test("logs deployment diagnostics and role check", async (t) => {
+  const originalCommit = process.env.VERCEL_GIT_COMMIT_SHA;
+  const originalUrl = process.env.SUPABASE_URL;
+  process.env.VERCEL_GIT_COMMIT_SHA = "abc123";
+  process.env.SUPABASE_URL = "https://db.example.supabase.co";
+
+  t.after(() => {
+    if (typeof originalCommit === "undefined") delete process.env.VERCEL_GIT_COMMIT_SHA;
+    else process.env.VERCEL_GIT_COMMIT_SHA = originalCommit;
+    if (typeof originalUrl === "undefined") delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = originalUrl;
+  });
+
+  const logSpy = mock.method(console, "log", () => {});
+  t.after(() => logSpy.mock.restore());
+
+  const res = makeRes();
+  await handler(makeReq("POST", validBody()), res);
+
+  assert.equal(res._status, 200);
+  assert.deepEqual(logSpy.mock.calls[0].arguments, ["[operator-leads] DIAGNOSTIC START"]);
+  assert.deepEqual(logSpy.mock.calls[1].arguments, ["[operator-leads] COMMIT", "abc123"]);
+  assert.deepEqual(logSpy.mock.calls[2].arguments, ["[operator-leads] URL", "https://db.example.supabase.co"]);
+  assert.deepEqual(logSpy.mock.calls[3].arguments, [
+    "[operator-leads] ROLE CHECK",
+    { data: null, error: null },
   ]);
 });
 

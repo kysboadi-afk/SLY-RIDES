@@ -238,6 +238,9 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+  console.log("[operator-leads] DIAGNOSTIC START");
+  console.log("[operator-leads] COMMIT", process.env.VERCEL_GIT_COMMIT_SHA || null);
+  console.log("[operator-leads] URL", process.env.SUPABASE_URL || null);
 
   const {
     name,
@@ -284,6 +287,11 @@ export default async function handler(req, res) {
       error: "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to your Vercel environment variables.",
     });
   }
+  const { data: roleCheckData, error: roleCheckError } = await supabase.rpc("current_role_check");
+  console.log("[operator-leads] ROLE CHECK", {
+    data: roleCheckData ?? null,
+    error: roleCheckError ? formatSupabaseError(roleCheckError) : null,
+  });
 
   const notes = normalizeText(
     [
