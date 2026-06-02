@@ -22,12 +22,6 @@ export function getSupabaseAdmin() {
   }
 
   try {
-    console.log("SUPABASE_URL", process.env.SUPABASE_URL);
-    console.log(
-      "SERVICE_ROLE_PREFIX",
-      process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20)
-    );
-
     const client = createClient(url, key, {
       auth: {
         persistSession: false,

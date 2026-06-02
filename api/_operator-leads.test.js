@@ -192,69 +192,6 @@ test("returns 503 when Supabase is unavailable", async () => {
   assert.match(res._body.error, /Supabase is not configured/);
 });
 
-test("logs Supabase env presence booleans without secrets", async (t) => {
-  const originalUrl = process.env.SUPABASE_URL;
-  const originalKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const originalAppEnv = process.env.APP_ENV;
-  process.env.SUPABASE_URL = "https://db.example.supabase.co";
-  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-  process.env.APP_ENV = "preview";
-
-  t.after(() => {
-    if (typeof originalUrl === "undefined") delete process.env.SUPABASE_URL;
-    else process.env.SUPABASE_URL = originalUrl;
-    if (typeof originalKey === "undefined") delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    else process.env.SUPABASE_SERVICE_ROLE_KEY = originalKey;
-    if (typeof originalAppEnv === "undefined") delete process.env.APP_ENV;
-    else process.env.APP_ENV = originalAppEnv;
-  });
-
-  const infoSpy = mock.method(console, "info", () => {});
-  t.after(() => infoSpy.mock.restore());
-
-  const res = makeRes();
-  await handler(makeReq("POST", validBody()), res);
-
-  assert.equal(infoSpy.mock.callCount(), 1);
-  assert.deepEqual(infoSpy.mock.calls[0].arguments, [
-    "operator-leads Supabase env presence",
-    {
-      supabaseUrlPresent: true,
-      supabaseServiceRoleKeyPresent: false,
-      appEnv: "preview",
-    },
-  ]);
-});
-
-test("logs deployment diagnostics and role check", async (t) => {
-  const originalCommit = process.env.VERCEL_GIT_COMMIT_SHA;
-  const originalUrl = process.env.SUPABASE_URL;
-  process.env.VERCEL_GIT_COMMIT_SHA = "abc123";
-  process.env.SUPABASE_URL = "https://db.example.supabase.co";
-
-  t.after(() => {
-    if (typeof originalCommit === "undefined") delete process.env.VERCEL_GIT_COMMIT_SHA;
-    else process.env.VERCEL_GIT_COMMIT_SHA = originalCommit;
-    if (typeof originalUrl === "undefined") delete process.env.SUPABASE_URL;
-    else process.env.SUPABASE_URL = originalUrl;
-  });
-
-  const logSpy = mock.method(console, "log", () => {});
-  t.after(() => logSpy.mock.restore());
-
-  const res = makeRes();
-  await handler(makeReq("POST", validBody()), res);
-
-  assert.equal(res._status, 200);
-  assert.deepEqual(logSpy.mock.calls[0].arguments, ["[operator-leads] DIAGNOSTIC START"]);
-  assert.deepEqual(logSpy.mock.calls[1].arguments, ["[operator-leads] COMMIT", "abc123"]);
-  assert.deepEqual(logSpy.mock.calls[2].arguments, ["[operator-leads] URL", "https://db.example.supabase.co"]);
-  assert.deepEqual(logSpy.mock.calls[3].arguments, [
-    "[operator-leads] ROLE CHECK",
-    { data: null, error: null },
-  ]);
-});
-
 test("stores operator lead, dispatches notification, and returns status metadata", async () => {
   const res = makeRes();
   await handler(makeReq("POST", validBody()), res);

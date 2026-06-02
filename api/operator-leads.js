@@ -238,10 +238,6 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
-  console.log("[operator-leads] DIAGNOSTIC START");
-  console.log("[operator-leads] COMMIT", process.env.VERCEL_GIT_COMMIT_SHA || null);
-  console.log("[operator-leads] URL", process.env.SUPABASE_URL || null);
-
   const {
     name,
     email,
@@ -273,25 +269,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Please enter a valid email address." });
   }
 
-  const supabaseUrlPresent = Boolean(process.env.SUPABASE_URL);
-  const supabaseServiceRoleKeyPresent = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
-  console.info("operator-leads Supabase env presence", {
-    supabaseUrlPresent,
-    supabaseServiceRoleKeyPresent,
-    appEnv: process.env.APP_ENV || null,
-  });
-
   const supabase = getSupabaseAdmin();
   if (!supabase) {
     return res.status(503).json({
       error: "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to your Vercel environment variables.",
     });
   }
-  const { data: roleCheckData, error: roleCheckError } = await supabase.rpc("current_role_check");
-  console.log("[operator-leads] ROLE CHECK", {
-    data: roleCheckData ?? null,
-    error: roleCheckError ? formatSupabaseError(roleCheckError) : null,
-  });
 
   const notes = normalizeText(
     [
@@ -451,13 +434,6 @@ export default async function handler(req, res) {
     conversion_status: "not_started",
     onboarding_progress: withFunnelTimestamp({}, "lead_submitted_at", leadSubmittedAt),
   };
-
-  console.log('[operator-leads] CLIENT CHECK', {
-    hasUrl: !!process.env.SUPABASE_URL,
-    hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    serviceRolePrefix:
-      process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 30),
-  });
 
   const { data, error } = await logSupabaseCall("lead_insert", supabase
     .from("operator_leads")
