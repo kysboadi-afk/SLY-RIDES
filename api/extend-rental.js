@@ -251,7 +251,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (ledgerBalance > EXTENSION_BALANCE_BLOCK_THRESHOLD) {
+    if (!isBookingOverdue && ledgerBalance > EXTENSION_BALANCE_BLOCK_THRESHOLD) {
       return res.status(400).json({
         error: `Your current balance of $${ledgerBalance.toFixed(2)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Please pay your balance down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`,
         balanceBlocked: true,

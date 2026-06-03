@@ -798,6 +798,11 @@ test("extend-rental: 400 blocks extension when existing ledger balance exceeds $
   assert.equal(res._body.extensionBalanceThreshold, "150.00");
   assert.match(String(res._body?.error || ""), /pay your balance down/i);
   assert.equal(capturedStripeParams, null, "Stripe PI should not be created when balance-first block applies");
+  mockLedgerSummary = {
+    remaining_balance: 0, total_paid: 0, total_charges: 0,
+    total_credits: 0, total_waived: 0, total_refunds: 0,
+    net_balance: 0, credit_balance: 0, transaction_count: 0,
+  };
 });
 
 // ── Metadata ──────────────────────────────────────────────────────────────────

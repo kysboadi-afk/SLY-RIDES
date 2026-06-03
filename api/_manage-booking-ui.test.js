@@ -557,14 +557,14 @@ test("extension CTA remains available for active partial-payment state", async (
     bookingPayload: baseBooking({
       status: "active_rental",
       paymentStatus: "partial",
-      totalPrice: 600,
-      depositPaid: 250,
-      balanceDue: 350,
+      totalPrice: 340,
+      depositPaid: 220,
+      balanceDue: 120,
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 250,
-        remaining_balance: 350,
+        total_paid: 220,
+        remaining_balance: 120,
         transaction_count: 3,
       },
       transactions: [],
@@ -585,11 +585,14 @@ test("extension CTA keeps booking vehicle when inventory listing is unavailable/
       status: "active_rental",
       vehicleId: "legacy-manual-car-001",
       vehicleName: "Legacy Manual Car",
+      totalPrice: 230,
+      depositPaid: 130,
+      balanceDue: 100,
     }),
     ledgerPayload: {
       summary: {
         total_paid: 0,
-        remaining_balance: 275,
+        remaining_balance: 100,
         transaction_count: 0,
       },
       transactions: [],
@@ -610,11 +613,14 @@ test("extension CTA resolves renamed vehicle ID from booking vehicle name", asyn
       status: "active_rental",
       vehicleId: "old-camry-id",
       vehicleName: "Camry 2012",
+      totalPrice: 250,
+      depositPaid: 130,
+      balanceDue: 120,
     }),
     ledgerPayload: {
       summary: {
         total_paid: 100,
-        remaining_balance: 200,
+        remaining_balance: 120,
         transaction_count: 2,
       },
       transactions: [],

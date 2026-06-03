@@ -1202,11 +1202,6 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
       extCtaText = "📞 Contact Support";
       extCtaHref = "tel:+18445114059";
       extCtaNote = "Extension approval has been paused for this account. Contact support at (844) 511-4059 to resolve.";
-    } else if (extBalanceRequiresPaydown) {
-      extPillText = `⚠️ Balance above $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(0)} — pay first`;
-      extCtaText = "💳 Pay Balance First";
-      extCtaHref = "#pay-balance-section";
-      extCtaNote = `Your current balance of ${fmt(balance)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Pay it down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`;
     } else if (!extensionEligible) {
       extPillText = "Extension requires support";
       extCtaText = "📞 Contact Support About Extensions";
@@ -1226,6 +1221,11 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     } else if (extHasActiveLateF) {
       extPillText = "ℹ️ Late fee pending ($" + extLateFeeAmount.toFixed(2) + ")";
       extCtaNote = "Late fee of $" + extLateFeeAmount.toFixed(2) + " will be included in your extension payment at checkout.";
+    } else if (extBalanceRequiresPaydown) {
+      extPillText = `⚠️ Balance above $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(0)} — pay first`;
+      extCtaText = "💳 Pay Balance First";
+      extCtaHref = "#pay-balance-section";
+      extCtaNote = `Your current balance of ${fmt(balance)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Pay it down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`;
     }
 
     const extensionCta = document.getElementById("extension-cta");
