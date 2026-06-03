@@ -1133,8 +1133,20 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     setText("stat-overdue", fmt(overdueAmount));
     setText("stat-next-due", nextDueText);
     setText("stat-plan-progress", progressText);
+    const activeRenterUnder75Pct = ledgerSummaryUsable
+      && ["active", "active_rental"].includes(statusKey)
+      && total > 0
+      && balance > 0
+      && (paid / total) < 0.75;
+    const activeRenter75PctDisplayNote = activeRenterUnder75Pct
+      ? `Active rental notice: At least 75% of your total rental balance must be paid before an extension can be approved. You have paid ${Math.round((paid / total) * 100)}% (${fmt(paid)} of ${fmt(total)}). If your extension request does not go through yet, keep paying your balance until this threshold is met.`
+      : "";
+    const activeRenter75PctSecureNote = activeRenterUnder75Pct
+      ? "Active renter reminder: extensions unlock after at least 75% of the total balance is paid."
+      : "";
+
     setText("stat-paid-note", paid > 0 ? `${fmt(paid)} recorded across deposit and later payments.` : "No posted payments yet.");
-    setText("stat-balance-note", paymentState.balanceNote || (balance > 0 ? "Use the payment actions below to pay the remaining balance." : "No balance remains on this booking."));
+    setText("stat-balance-note", activeRenter75PctDisplayNote || paymentState.balanceNote || (balance > 0 ? "Use the payment actions below to pay the remaining balance." : "No balance remains on this booking."));
     setText("stat-overdue-note", overdueAmount > 0 ? "Past-due amount requires attention." : "No overdue amount is currently flagged.");
     setText("stat-next-due-note", plan?.nextDueDate ? "Based on your active payment plan." : "No payment-plan due date is currently scheduled.");
     setText("stat-plan-progress-note", plan ? "Installment completion using the active plan." : "If a plan is created later, progress will appear here.");
@@ -1160,7 +1172,9 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     if (secureNoteEl) {
       secureNoteEl.textContent = DEMO_MODE
         ? "⚡ Demo mode — simulated payment methods shown."
-        : "🔒 Payments secured by Stripe.";
+        : activeRenter75PctSecureNote
+          ? `🔒 Payments secured by Stripe. ${activeRenter75PctSecureNote}`
+          : "🔒 Payments secured by Stripe.";
     }
 
     const pifEl = document.getElementById("paid-in-full-notice");
@@ -1168,7 +1182,7 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const depositBannerEl = document.getElementById("payment-balance-banner");
     if (depositBannerEl) {
       if (balance > 0) {
-        depositBannerEl.textContent = paymentState.bannerText || "Remaining balance is still due on this booking.";
+        depositBannerEl.textContent = activeRenter75PctDisplayNote || paymentState.bannerText || "Remaining balance is still due on this booking.";
         depositBannerEl.style.display = "block";
       } else {
         depositBannerEl.style.display = "none";

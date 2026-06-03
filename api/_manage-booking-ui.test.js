@@ -574,8 +574,12 @@ test("extension CTA is blocked for active partial-payment state below 75%", asyn
 
   const extensionCta = document.getElementById("extension-cta");
   const pillEl = document.getElementById("extension-status-pill");
+  const balanceNoteEl = document.getElementById("stat-balance-note");
+  const balanceBannerEl = document.getElementById("payment-balance-banner");
   assert.match(extensionCta.textContent, /Pay Balance First/, "CTA must direct renter to pay balance");
   assert.match(pillEl.textContent, /75%/, "pill must show 75% requirement");
+  assert.match(balanceNoteEl.textContent, /75%/, "balance note must display the 75% requirement for active renters");
+  assert.match(balanceBannerEl.textContent, /extension request does not go through/i, "payment banner should explain why extension might not go through");
 });
 
 test("extension CTA keeps booking vehicle when inventory listing is unavailable/empty", async () => {
