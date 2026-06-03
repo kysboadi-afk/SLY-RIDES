@@ -726,30 +726,41 @@ test("extension-account-state: payment plan past_due shows delinquency warning",
   assert.match(ctaNote.textContent, /past-due installment/, "note should mention past-due installment");
 });
 
-test("extension-account-state: balance above $150 routes renter to pay balance first", async () => {
+test("extension-account-state: balance above $150 stays eligible when 95% threshold is satisfied", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({
       status: "active_rental",
       paymentStatus: "partial",
+      totalPrice: 4000,
+      depositPaid: 3820,
       balanceDue: 180,
       paymentPlan: null,
       extensionRiskOverride: null,
     }),
-    ledgerPayload: EMPTY_LEDGER,
+    ledgerPayload: {
+      summary: {
+        total_paid: 3820,
+        total_charges: 4000,
+        remaining_balance: 180,
+        transaction_count: 4,
+      },
+      transactions: [],
+    },
     agreementPayload: {},
     vehiclesPayload: [{ vehicle_id: "camry", vehicle_name: "Camry 2012" }],
   });
 
   const cta = document.getElementById("extension-cta");
-  assert.equal(cta.href, "https://slycarrentals.com/manage-booking.html?t=test-token#pay-balance-section");
-  assert.match(cta.textContent, /Pay Balance First/, "CTA should route renter to pay balance");
+  const query = getExtensionQuery(document);
+  assert.match(cta.textContent, /Open Extension Flow/, "CTA should allow extension flow");
+  assert.equal(query.get("extend"), "1");
+  assert.equal(query.get("vehicle"), "camry");
 
   const pillEl = document.getElementById("extension-status-pill");
-  assert.match(pillEl.textContent, /above \$150/i, "pill should mention the extension balance cap");
+  assert.doesNotMatch(pillEl.textContent, /\$150|pay first/i, "pill should no longer mention the removed balance cap");
 
   const ctaNote = document.getElementById("extension-cta-note");
-  assert.match(ctaNote.textContent, /\$180\.00/, "note should show the current balance");
-  assert.match(ctaNote.textContent, /\$150\.00/, "note should show the threshold");
+  assert.doesNotMatch(ctaNote.textContent, /\$150/i, "note should no longer mention the removed balance cap");
 });
 
 test("extension-account-state: extension_risk_override=block routes CTA to support", async () => {

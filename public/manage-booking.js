@@ -15,7 +15,6 @@
   const VEHICLES_API = "/api/v2-vehicles?scope=cars";
   const VEHICLE_MEDIA_API = "/api/v2-vehicles";
   const PAYMENT_SUCCESS_RELOAD_DELAY_MS = 2200;
-  const EXTENSION_BALANCE_BLOCK_THRESHOLD = 150;
   const VEHICLE_IMAGE_PLACEHOLDER = "/images/logo.jpg";
 
   // ── Parse token from URL ────────────────────────────────────────────────────
@@ -1187,7 +1186,6 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const extRiskOverride = String(b.extensionRiskOverride || "").trim().toLowerCase();
     const extPlanStatus = String(plan?.status || "").trim().toLowerCase();
     const extIsOverdue = statusKey === "overdue";
-    const extBalanceRequiresPaydown = balance > EXTENSION_BALANCE_BLOCK_THRESHOLD;
     const extIsPlanDelinquent = !!(plan && (plan.isOverdue || extPlanStatus === "defaulted" || extPlanStatus === "past_due"));
     const extHasActiveLateF = (extLateFeeStatus === "assessed" || extLateFeeStatus === "pending_collection") && extLateFeeAmount > 0;
     const extIsBlocked = extRiskOverride === "block";
@@ -1231,11 +1229,6 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     } else if (extHasActiveLateF) {
       extPillText = "ℹ️ Late fee pending ($" + extLateFeeAmount.toFixed(2) + ")";
       extCtaNote = "Late fee of $" + extLateFeeAmount.toFixed(2) + " will be included in your extension payment at checkout.";
-    } else if (extBalanceRequiresPaydown) {
-      extPillText = `⚠️ Balance above $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(0)} — pay first`;
-      extCtaText = "💳 Pay Balance First";
-      extCtaHref = "#pay-balance-section";
-      extCtaNote = `Your current balance of ${fmt(balance)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Pay it down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`;
     }
 
     const extensionCta = document.getElementById("extension-cta");

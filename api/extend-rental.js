@@ -34,7 +34,6 @@ import {
 } from "./_extension-lifecycle.js";
 
 const ALLOWED_ORIGINS = ["https://www.slytrans.com", "https://slytrans.com", "https://slycarrentals.com", "https://www.slycarrentals.com", "https://admin.slycarrentals.com"];
-const EXTENSION_BALANCE_BLOCK_THRESHOLD = 150;
 const EXTENSION_MIN_PAID_PCT = 0.95;
 
 export default async function handler(req, res) {
@@ -265,16 +264,6 @@ export default async function handler(req, res) {
         error: `Your account has an overdue balance of $${ledgerBalance.toFixed(2)}. All overdue amounts must be paid in full before an extension can be approved.`,
         overdueBlocked: true,
         ledgerBalance: ledgerBalance.toFixed(2),
-      });
-    }
-
-    // Block extensions when the remaining balance exceeds the threshold.
-    if (!isBookingOverdue && ledgerBalance > EXTENSION_BALANCE_BLOCK_THRESHOLD) {
-      return res.status(400).json({
-        error: `Your current balance of $${ledgerBalance.toFixed(2)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Please pay your balance down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`,
-        balanceBlocked: true,
-        ledgerBalance: ledgerBalance.toFixed(2),
-        extensionBalanceThreshold: EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2),
       });
     }
 
