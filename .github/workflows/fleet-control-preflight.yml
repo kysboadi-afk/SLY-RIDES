@@ -79,8 +79,14 @@ jobs:
           sep();
           console.log("  SCHEMA COMPARISON");
           sep();
-          line("Columns match?",     p.schemaColumnsMatch     ? "✅  YES" : "❌  NO — migration BLOCKED");
-          line("Constraints match?", p.schemaConstraintsMatch ? "✅  YES" : "❌  NO — migration BLOCKED");
+          const schemaMode = log.schemaValidationMode || "information_schema";
+          line("Schema check mode:", schemaMode);
+          if (typeof p.requiredTablesAccessible === "boolean") {
+            line("Required tables accessible?", p.requiredTablesAccessible ? "✅  YES" : "❌  NO — migration BLOCKED");
+          } else {
+            line("Columns match?",     p.schemaColumnsMatch     ? "✅  YES" : "❌  NO — migration BLOCKED");
+            line("Constraints match?", p.schemaConstraintsMatch ? "✅  YES" : "❌  NO — migration BLOCKED");
+          }
 
           sep();
           console.log("  SOURCE ROW COUNTS  (rows to be migrated)");
@@ -112,11 +118,13 @@ jobs:
 
           sep();
           // Final recommendation
-          const columnsOk     = p.schemaColumnsMatch     === true;
-          const constraintsOk = p.schemaConstraintsMatch === true;
+          const schemaOk =
+            typeof p.requiredTablesAccessible === "boolean"
+              ? p.requiredTablesAccessible === true
+              : (p.schemaColumnsMatch === true && p.schemaConstraintsMatch === true);
           const noLeadConflict = (p.activeFleetControlLeadsInTarget === 0);
           const noOrgConflict  = (p.referencedOrgsInTarget === 0);
-          const safe = columnsOk && constraintsOk && noLeadConflict && noOrgConflict;
+          const safe = schemaOk && noLeadConflict && noOrgConflict;
 
           if (safe) {
             console.log("  ✅  RECOMMENDATION: SAFE TO MIGRATE");
@@ -124,8 +132,14 @@ jobs:
             console.log("     No ID conflicts detected. Re-run with --execute when ready.");
           } else {
             console.log("  ❌  RECOMMENDATION: DO NOT MIGRATE");
-            if (!columnsOk)       console.log("     • Column schema mismatch between source and target.");
-            if (!constraintsOk)   console.log("     • Constraint schema mismatch between source and target.");
+            if (!schemaOk) {
+              if (typeof p.requiredTablesAccessible === "boolean") {
+                console.log("     • Required public tables are not accessible in source and/or target.");
+              } else {
+                if (p.schemaColumnsMatch !== true)     console.log("     • Column schema mismatch between source and target.");
+                if (p.schemaConstraintsMatch !== true) console.log("     • Constraint schema mismatch between source and target.");
+              }
+            }
             if (!noLeadConflict)  console.log(`     • operator_leads already has ${leadsInTarget} row(s) in target.`);
             if (!noOrgConflict)   console.log(`     • ${orgsInTarget} referenced org ID(s) already exist in target.`);
             console.log("     Resolve the issues above before attempting migration.");
