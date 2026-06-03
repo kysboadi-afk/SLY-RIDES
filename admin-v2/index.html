@@ -16386,6 +16386,7 @@ async function deletePaymentPlan(planId) {
 // ── Balance Ledger page ────────────────────────────────────────────────────
 let currentLedgerBookingId = null;
 let currentLedgerRemainingBalance = 0;
+let currentLedgerTransactionMap = {};
 let pendingChargeRequestId = null;
 
 function initBalanceLedgerPage() {
@@ -16423,6 +16424,8 @@ async function loadBalanceLedger() {
     const transactions = Array.isArray(historyData.transactions) ? historyData.transactions : [];
     const remaining = Number(summary.remaining_balance || 0);
     currentLedgerRemainingBalance = remaining;
+    currentLedgerTransactionMap = {};
+    for (const tx of transactions) { if (tx.id) currentLedgerTransactionMap[tx.id] = tx; }
 
     // Update summary cards
     const fmt = (v) => '$' + Number(v || 0).toFixed(2);
@@ -16460,7 +16463,7 @@ async function loadBalanceLedger() {
             <td>${createdBy}</td>
             <td>${esc(dueDate)}</td>
             <td>
-              <button class="btn btn-secondary btn-sm" onclick="editLedgerEntry(${JSON.stringify(tx)})">Edit</button>
+              <button class="btn btn-secondary btn-sm" onclick="editLedgerEntry('${esc(tx.id || '')}')">Edit</button>
               <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="deleteLedgerEntry('${esc(tx.id || '')}')">Del</button>
             </td>
           </tr>`;
@@ -16537,7 +16540,10 @@ function sendPaymentLinkFromLedger() {
   sendPaymentLinkForBooking(currentLedgerBookingId, { sendEmail: true });
 }
 
-function editLedgerEntry(tx) {
+function editLedgerEntry(idOrTx) {
+  const tx = (typeof idOrTx === 'object' && idOrTx !== null)
+    ? idOrTx
+    : currentLedgerTransactionMap[idOrTx];
   if (!tx || !tx.id) { showToast('Cannot edit this entry.', 'error'); return; }
   const el = (id) => document.getElementById(id);
   if (el('el-id'))       el('el-id').value       = tx.id;
