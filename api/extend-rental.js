@@ -35,6 +35,7 @@ import {
 
 const ALLOWED_ORIGINS = ["https://www.slytrans.com", "https://slytrans.com", "https://slycarrentals.com", "https://www.slycarrentals.com", "https://admin.slycarrentals.com"];
 const EXTENSION_BALANCE_BLOCK_THRESHOLD = 150;
+const EXTENSION_MIN_PAID_PCT = 0.95;
 
 export default async function handler(req, res) {
   // CORS — allow requests from the production frontend only
@@ -235,8 +236,10 @@ export default async function handler(req, res) {
 
     // ── Step 1 of financial computation order: query authoritative ledger balance ──
     // Provides the ground-truth remaining balance that factors into the financial
-    // trace and overdue-state derivation.  Non-fatal: failures leave ledgerBalance at 0.
+    // trace and overdue-state derivation.  Non-fatal: failures leave ledger values at 0.
     let ledgerBalance = 0;
+    let ledgerTotalCharges = 0;
+    let ledgerTotalPaid = 0;
     const isBookingOverdue = activeBooking.status === "overdue";
     if (sb) {
       try {
@@ -245,18 +248,45 @@ export default async function handler(req, res) {
           const summary = await getLedgerSummary(sb, { bookingId: ledgerRef });
           const parsed = Number(summary?.remaining_balance);
           if (Number.isFinite(parsed) && parsed > 0) ledgerBalance = parsed;
+          const parsedCharges = Number(summary?.total_charges);
+          if (Number.isFinite(parsedCharges) && parsedCharges > 0) ledgerTotalCharges = parsedCharges;
+          const parsedPaid = Number(summary?.total_paid);
+          if (Number.isFinite(parsedPaid) && parsedPaid > 0) ledgerTotalPaid = parsedPaid;
         }
       } catch (ledgerErr) {
         console.warn("extend-rental: ledger query failed (non-fatal):", ledgerErr.message);
       }
     }
 
+    // Block extensions when the booking is overdue — any outstanding overdue balance
+    // must be paid in full before an extension is permitted.
+    if (isBookingOverdue && ledgerBalance > 0) {
+      return res.status(400).json({
+        error: `Your account has an overdue balance of $${ledgerBalance.toFixed(2)}. All overdue amounts must be paid in full before an extension can be approved.`,
+        overdueBlocked: true,
+        ledgerBalance: ledgerBalance.toFixed(2),
+      });
+    }
+
+    // Block extensions when the remaining balance exceeds the threshold.
     if (!isBookingOverdue && ledgerBalance > EXTENSION_BALANCE_BLOCK_THRESHOLD) {
       return res.status(400).json({
         error: `Your current balance of $${ledgerBalance.toFixed(2)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Please pay your balance down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`,
         balanceBlocked: true,
         ledgerBalance: ledgerBalance.toFixed(2),
         extensionBalanceThreshold: EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2),
+      });
+    }
+
+    // Block extensions when less than 95% of total charges have been paid.
+    if (ledgerTotalCharges > 0 && ledgerTotalPaid / ledgerTotalCharges < EXTENSION_MIN_PAID_PCT) {
+      const pctPaid = Math.round((ledgerTotalPaid / ledgerTotalCharges) * 100);
+      return res.status(400).json({
+        error: `At least 95% of your total rental balance must be paid before requesting an extension. You have paid ${pctPaid}% ($${ledgerTotalPaid.toFixed(2)} of $${ledgerTotalCharges.toFixed(2)}). Please pay more of your balance before requesting an extension.`,
+        under95PctBlocked: true,
+        ledgerTotalCharges: ledgerTotalCharges.toFixed(2),
+        ledgerTotalPaid: ledgerTotalPaid.toFixed(2),
+        pctPaid,
       });
     }
 

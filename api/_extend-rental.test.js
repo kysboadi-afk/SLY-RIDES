@@ -1250,7 +1250,7 @@ test("extension-financial-trace: render_source_used is bookings_json when Supaba
 });
 
 test("extension-financial-trace: ledger_balance populated from mock ledger, render_source is supabase+ledger", async () => {
-  mockLedgerSummary = { remaining_balance: 150, total_paid: 100, total_charges: 250,
+  mockLedgerSummary = { remaining_balance: 150, total_paid: 100, total_charges: 0,
     total_credits: 100, total_waived: 0, total_refunds: 0,
     net_balance: 150, credit_balance: 0, transaction_count: 3 };
 
@@ -1276,7 +1276,7 @@ test("extension-financial-trace: ledger_balance populated from mock ledger, rend
   assert.equal(trace.render_source_used, "supabase+ledger", "sb + positive ledger → supabase+ledger");
 });
 
-test("extension-financial-trace: overdue booking traces overdue_amount from ledger balance", async () => {
+test("extension-financial-trace: overdue booking with ledger balance is blocked before extension", async () => {
   mockLedgerSummary = { remaining_balance: 200, total_paid: 50, total_charges: 250,
     total_credits: 50, total_waived: 0, total_refunds: 0,
     net_balance: 200, credit_balance: 0, transaction_count: 2 };
@@ -1295,19 +1295,17 @@ test("extension-financial-trace: overdue booking traces overdue_amount from ledg
     ],
   });
 
-  // Use a "now" only slightly after the return date so the time-based late fee is small
-  // and doesn't affect the overdue_amount assertion (which is ledger-based).
   await withMockedNow("2026-05-02T12:00:00-07:00", async () => {
     const res = makeRes();
     await handler(makeReq({ vehicleId: "camry", email: "alice@example.com", newReturnDate: "2026-05-10" }), res);
 
-    assert.equal(res._status, 200);
-    const trace = res._body?.extensionFinancialTrace;
-    assert.ok(trace, "extensionFinancialTrace must be present");
-    assert.equal(trace.overdue_amount, 200, "overdue booking: overdue_amount = ledger_balance");
-    assert.equal(trace.ledger_balance, 200, "ledger_balance should be 200");
-    assert.equal(trace.render_source_used, "supabase+ledger");
+    assert.equal(res._status, 400, "overdue booking with balance must be blocked");
+    assert.ok(res._body?.overdueBlocked, "overdueBlocked flag must be set");
+    assert.equal(res._body?.ledgerBalance, "200.00", "ledgerBalance should reflect mock");
   });
+  mockLedgerSummary = { remaining_balance: 0, total_paid: 0, total_charges: 0,
+    total_credits: 0, total_waived: 0, total_refunds: 0,
+    net_balance: 0, credit_balance: 0, transaction_count: 0 };
 });
 
 test("extension-financial-trace: partial payment extension captured in trace", async () => {
