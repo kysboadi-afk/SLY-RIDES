@@ -433,6 +433,61 @@ test("payment init mounts express checkout for balance and partial flows", async
   assert.equal(document.getElementById("partial-express-wrap").style.display, "block");
 });
 
+test("balance confirmation includes return_url for redirect-capable payment methods", async () => {
+  const confirmCalls = [];
+  const stripeFactory = () => ({
+    elements() {
+      return {
+        create() {
+          return {
+            on() {},
+            mount() {},
+            unmount() {},
+          };
+        },
+      };
+    },
+    async confirmPayment(options) {
+      confirmCalls.push(options);
+      return { paymentIntent: { status: "requires_payment_method" } };
+    },
+  });
+
+  const document = await bootDashboard({
+    bookingPayload: baseBooking(),
+    ledgerPayload: {
+      summary: {
+        total_paid: 50,
+        remaining_balance: 335.88,
+        transaction_count: 1,
+      },
+      transactions: [],
+    },
+    agreementPayload: {},
+    createIntentPayload: {
+      clientSecret: "cs_test_123",
+      publishableKey: "pk_test_123",
+      balanceAmount: 335.88,
+      paymentAmount: 335.88,
+    },
+    setupWindow(window) {
+      window.Stripe = stripeFactory;
+    },
+  });
+
+  document.getElementById("btn-init-balance").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  document.getElementById("btn-confirm-balance").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(confirmCalls.length, 1);
+  assert.equal(confirmCalls[0]?.redirect, "if_required");
+  assert.equal(confirmCalls[0]?.confirmParams?.return_url, "https://slycarrentals.com/manage-booking.html?t=test-token");
+});
+
 test("extension CTA stays active for active rental with overdue payment-plan balance and carries token context", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({

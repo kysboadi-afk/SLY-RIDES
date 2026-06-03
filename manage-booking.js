@@ -1847,6 +1847,7 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
       try {
         const result = await balanceStripe.confirmPayment({
           elements: balanceElements,
+          confirmParams: { return_url: window.location.href },
           redirect: "if_required",
         });
         if (result.error) {
