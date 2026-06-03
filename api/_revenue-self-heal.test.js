@@ -10,23 +10,41 @@ const persistCalls = [];
 // Phase 2 state: paid non-cancelled bookings and captured inserts
 const paidBookings = [];
 const insertedRevenue = [];
+const stripePiFixtures = new Map();
+const stripeChargeFixtures = new Map();
 
 mock.module("stripe", {
   defaultExport: class FakeStripe {
     constructor() {}
     paymentIntents = {
-      retrieve: async (id) => ({
-        id,
-        amount_received: 35000,
-        latest_charge: {
-          id: `ch_${id}`,
+      retrieve: async (id) => {
+        if (stripePiFixtures.has(id)) return stripePiFixtures.get(id);
+        return {
+          id,
+          amount_received: 35000,
+          latest_charge: {
+            id: `ch_${id}`,
+            balance_transaction: {
+              id: `txn_${id}`,
+              fee: 1200,
+              net: 33800,
+            },
+          },
+        };
+      },
+    };
+    charges = {
+      retrieve: async (id) => {
+        if (stripeChargeFixtures.has(id)) return stripeChargeFixtures.get(id);
+        return {
+          id,
           balance_transaction: {
             id: `txn_${id}`,
             fee: 1200,
             net: 33800,
           },
-        },
-      }),
+        };
+      },
     };
   },
 });
@@ -155,6 +173,8 @@ test("revenue-self-heal repairs incomplete revenue row", async () => {
   persistCalls.length = 0;
   paidBookings.length = 0;
   insertedRevenue.length = 0;
+  stripePiFixtures.clear();
+  stripeChargeFixtures.clear();
   revenueRows.push({
     id: "rr_1",
     booking_id: "bk-1",
@@ -176,11 +196,80 @@ test("revenue-self-heal repairs incomplete revenue row", async () => {
   assert.equal(revenueRows[0].payment_intent_id, "pi_1");
 });
 
+test("revenue-self-heal repairs manual payment_intent without Stripe lookup", async () => {
+  revenueRows.length = 0;
+  persistCalls.length = 0;
+  paidBookings.length = 0;
+  insertedRevenue.length = 0;
+  stripePiFixtures.clear();
+  stripeChargeFixtures.clear();
+  revenueRows.push({
+    id: "rr_manual_1",
+    booking_id: "bk-manual-1",
+    payment_intent_id: "manual_6e6449ec422b",
+    stripe_fee: null,
+    gross_amount: 127.45,
+    refund_amount: 0,
+    type: "rental",
+  });
+  bookingsByRef["bk-manual-1"] = { id: "b_manual_1", payment_intent_id: "manual_6e6449ec422b" };
+
+  const res = makeRes();
+  await handler({ method: "GET", headers: {}, body: { secret: "test-admin-secret" } }, res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.failed, 0);
+  assert.equal(res._body.repaired, 1);
+  assert.equal(revenueRows[0].stripe_fee, 0);
+  assert.equal(revenueRows[0].gross_amount, 127.45);
+  assert.equal(persistCalls.length, 0);
+});
+
+test("revenue-self-heal falls back to charge lookup when PI latest_charge bt is missing", async () => {
+  revenueRows.length = 0;
+  persistCalls.length = 0;
+  paidBookings.length = 0;
+  insertedRevenue.length = 0;
+  stripePiFixtures.clear();
+  stripeChargeFixtures.clear();
+  revenueRows.push({
+    id: "rr_pi_fallback_1",
+    booking_id: "bk-pi-fallback-1",
+    payment_intent_id: "pi_bt_missing_1",
+    stripe_fee: null,
+    gross_amount: 49.99,
+    refund_amount: 0,
+    type: "rental",
+  });
+  bookingsByRef["bk-pi-fallback-1"] = { id: "b_pi_fallback_1", payment_intent_id: "pi_bt_missing_1" };
+  stripePiFixtures.set("pi_bt_missing_1", {
+    id: "pi_bt_missing_1",
+    amount_received: 4999,
+    latest_charge: { id: "ch_bt_missing_1", balance_transaction: null },
+    metadata: {},
+  });
+  stripeChargeFixtures.set("ch_bt_missing_1", {
+    id: "ch_bt_missing_1",
+    balance_transaction: { id: "txn_bt_missing_1", fee: 333, net: 4666 },
+  });
+
+  const res = makeRes();
+  await handler({ method: "GET", headers: {}, body: { secret: "test-admin-secret" } }, res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.failed, 0);
+  assert.equal(res._body.repaired, 1);
+  assert.equal(revenueRows[0].stripe_fee, 3.33);
+  assert.equal(revenueRows[0].gross_amount, 49.99);
+});
+
 test("revenue-self-heal reconstructs missing booking from revenue + Stripe data", async () => {
   revenueRows.length = 0;
   persistCalls.length = 0;
   paidBookings.length = 0;
   insertedRevenue.length = 0;
+  stripePiFixtures.clear();
+  stripeChargeFixtures.clear();
   revenueRows.push({
     id: "rr_missing_booking",
     booking_id: "bk-missing",

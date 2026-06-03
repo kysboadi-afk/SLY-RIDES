@@ -27,12 +27,38 @@ function formatSupabaseError(err) {
   return parts.length > 0 ? parts.join(" | ") : JSON.stringify(err);
 }
 
-async function resolveStripeFinancials(stripe, paymentIntentId) {
+function roundCurrency(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round(num * 100) / 100;
+}
+
+function isStripePaymentIntentId(paymentIntentId) {
+  return typeof paymentIntentId === "string" && /^pi_/i.test(paymentIntentId.trim());
+}
+
+async function resolveStripeFinancials(stripe, paymentIntentId, { fallbackGrossAmount = 0 } = {}) {
+  if (!isStripePaymentIntentId(paymentIntentId)) {
+    return {
+      grossAmount: roundCurrency(fallbackGrossAmount),
+      stripeFee: 0,
+      paymentIntent: null,
+    };
+  }
+
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
     expand: ["latest_charge.balance_transaction"],
   });
-  const bt = pi?.latest_charge && typeof pi.latest_charge === "object"
-    ? pi.latest_charge.balance_transaction
+
+  let charge = pi?.latest_charge || null;
+  if (typeof charge === "string" && charge) {
+    charge = await stripe.charges.retrieve(charge, { expand: ["balance_transaction"] });
+  } else if (charge && typeof charge === "object" && charge.id && (!charge.balance_transaction || typeof charge.balance_transaction === "string")) {
+    charge = await stripe.charges.retrieve(charge.id, { expand: ["balance_transaction"] });
+  }
+
+  const bt = charge && typeof charge === "object"
+    ? charge.balance_transaction
     : null;
   if (!bt || typeof bt !== "object") {
     throw new Error(`missing latest_charge.balance_transaction for PI ${paymentIntentId}`);
@@ -43,9 +69,9 @@ async function resolveStripeFinancials(stripe, paymentIntentId) {
     throw new Error(`invalid stripe fee for PI ${paymentIntentId}`);
   }
   return {
-    grossAmount: Math.round(grossAmount * 100) / 100,
-    stripeFee: Math.round(stripeFee * 100) / 100,
-    paymentIntent: pi,
+    grossAmount: roundCurrency(grossAmount),
+    stripeFee: roundCurrency(stripeFee),
+    paymentIntent: { ...pi, latest_charge: charge || pi?.latest_charge || null },
   };
 }
 
@@ -77,10 +103,13 @@ async function ensureBookingForRevenueRow(sb, stripe, row) {
     throw new Error(`missing payment_intent_id for missing booking_id=${bookingRef}`);
   }
 
-  const stripeFields = await resolveStripeFinancials(stripe, paymentIntentId);
+  const stripeBacked = isStripePaymentIntentId(paymentIntentId);
+  const stripeFields = await resolveStripeFinancials(stripe, paymentIntentId, {
+    fallbackGrossAmount: Number(row.gross_amount || 0),
+  });
   const pi = stripeFields.paymentIntent;
   const meta = pi?.metadata || {};
-  const amountPaid = stripeFields.grossAmount;
+  const amountPaid = stripeFields.grossAmount || Number(row.gross_amount || 0);
   const fullRentalAmount = Number.parseFloat(meta.full_rental_amount || "");
   const totalPrice = Number.isFinite(fullRentalAmount) && fullRentalAmount > 0
     ? Math.round(fullRentalAmount * 100) / 100
@@ -101,13 +130,13 @@ async function ensureBookingForRevenueRow(sb, stripe, row) {
     amountPaid,
     totalPrice,
     paymentIntentId,
-    paymentMethod: "stripe",
+    paymentMethod: stripeBacked ? "stripe" : "manual",
     source: "revenue_self_heal",
     strictPersistence: true,
     stripeCustomerId: pi?.customer || null,
     stripePaymentMethodId: pi?.payment_method || null,
     stripeFee: stripeFields.stripeFee,
-    requireStripeFee: true,
+    requireStripeFee: stripeBacked,
     ...(meta.protection_plan_tier ? { protectionPlanTier: meta.protection_plan_tier } : {}),
   });
 
@@ -235,7 +264,9 @@ export default async function handler(req, res) {
           throw new Error(`missing payment_intent_id for booking_id=${row.booking_id}`);
         }
 
-        const stripeFields = await resolveStripeFinancials(stripe, paymentIntentId);
+        const stripeFields = await resolveStripeFinancials(stripe, paymentIntentId, {
+          fallbackGrossAmount: Number(row.gross_amount || 0),
+        });
         const updatePayload = {
           gross_amount: stripeFields.grossAmount,
           stripe_fee: stripeFields.stripeFee,
