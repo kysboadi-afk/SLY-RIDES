@@ -1,0 +1,149 @@
+name: Fleet Control Migration Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_maintenance:
+        description: "Type YES to confirm a maintenance window is in place"
+        required: true
+        default: ""
+
+jobs:
+  preflight:
+    name: Run preflight (read-only, no writes)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm_maintenance == 'YES' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Fleet Control preflight
+        id: preflight
+        env:
+          SOURCE_SUPABASE_URL: ${{ secrets.SOURCE_SUPABASE_URL }}
+          SOURCE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SOURCE_SUPABASE_SERVICE_ROLE_KEY }}
+          TARGET_SUPABASE_URL: ${{ secrets.TARGET_SUPABASE_URL }}
+          TARGET_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TARGET_SUPABASE_SERVICE_ROLE_KEY }}
+          FLEET_CONTROL_MAINTENANCE_CONFIRMED: "true"
+        run: |
+          # Run preflight only — no --execute flag
+          node scripts/migrate-fleet-control-data.mjs --maintenance-confirmed
+
+      - name: Print preflight summary
+        if: always()
+        run: |
+          LOG_DIR="/tmp/fleet-control-migration"
+          LOG_FILE=$(ls -t "$LOG_DIR"/migration-log-*.json 2>/dev/null | head -1)
+
+          if [ -z "$LOG_FILE" ]; then
+            echo "::error::No migration log file found. Preflight may have failed before writing the log."
+            exit 1
+          fi
+
+          echo "::group::Full preflight JSON log"
+          cat "$LOG_FILE"
+          echo "::endgroup::"
+
+          node - <<'EOF'
+          import { readFileSync } from "fs";
+          import { readdirSync } from "fs";
+          import path from "path";
+
+          const logDir = "/tmp/fleet-control-migration";
+          const files = readdirSync(logDir).filter(f => f.startsWith("migration-log-")).sort().reverse();
+          if (!files.length) { console.error("No log file."); process.exit(1); }
+          const log = JSON.parse(readFileSync(path.join(logDir, files[0]), "utf8"));
+          const p = log.preflight || {};
+
+          const line = (label, val) => console.log(`  ${label.padEnd(45)} ${val}`);
+          const sep  = () => console.log("-".repeat(65));
+
+          console.log("\n════════════════════════════════════════════════════════════════");
+          console.log("  FLEET CONTROL MIGRATION PREFLIGHT REPORT");
+          console.log("════════════════════════════════════════════════════════════════");
+          console.log(`  Mode              : ${log.mode}`);
+          console.log(`  Source project    : ${log.sourceProjectRef}`);
+          console.log(`  Target project    : ${log.targetProjectRef}`);
+          console.log(`  Maintenance flag  : ${log.maintenanceConfirmed}`);
+
+          sep();
+          console.log("  SCHEMA COMPARISON");
+          sep();
+          line("Columns match?",     p.schemaColumnsMatch     ? "✅  YES" : "❌  NO — migration BLOCKED");
+          line("Constraints match?", p.schemaConstraintsMatch ? "✅  YES" : "❌  NO — migration BLOCKED");
+
+          sep();
+          console.log("  SOURCE ROW COUNTS  (rows to be migrated)");
+          sep();
+          const srcCounts = p.sourceScopeCounts || {};
+          for (const [t, n] of Object.entries(srcCounts)) line(t, n);
+
+          sep();
+          console.log("  TARGET ROW COUNTS  (before migration)");
+          sep();
+          const tgtCounts = p.beforeCountsTarget || {};
+          for (const [t, n] of Object.entries(tgtCounts)) line(t, n);
+
+          sep();
+          console.log("  CONFLICT DETECTION");
+          sep();
+          const leadsInTarget = p.activeFleetControlLeadsInTarget ?? "n/a";
+          const orgsInTarget  = p.referencedOrgsInTarget ?? "n/a";
+          line("operator_leads rows already in target:", leadsInTarget);
+          line("referenced org IDs already in target:", orgsInTarget);
+
+          sep();
+          console.log("  SERVICE PACKAGE CATALOG CHECK");
+          sep();
+          const srcPkgs = p.sourceWebsiteServicePackages || [];
+          const tgtPkgs = p.targetWebsiteServicePackages || [];
+          line("Source website_services packages:", srcPkgs.length);
+          line("Target website_services packages:", tgtPkgs.length);
+
+          sep();
+          // Final recommendation
+          const columnsOk     = p.schemaColumnsMatch     === true;
+          const constraintsOk = p.schemaConstraintsMatch === true;
+          const noLeadConflict = (p.activeFleetControlLeadsInTarget === 0);
+          const noOrgConflict  = (p.referencedOrgsInTarget === 0);
+          const safe = columnsOk && constraintsOk && noLeadConflict && noOrgConflict;
+
+          if (safe) {
+            console.log("  ✅  RECOMMENDATION: SAFE TO MIGRATE");
+            console.log("     All schema checks passed. Target tables are empty.");
+            console.log("     No ID conflicts detected. Re-run with --execute when ready.");
+          } else {
+            console.log("  ❌  RECOMMENDATION: DO NOT MIGRATE");
+            if (!columnsOk)       console.log("     • Column schema mismatch between source and target.");
+            if (!constraintsOk)   console.log("     • Constraint schema mismatch between source and target.");
+            if (!noLeadConflict)  console.log(`     • operator_leads already has ${leadsInTarget} row(s) in target.`);
+            if (!noOrgConflict)   console.log(`     • ${orgsInTarget} referenced org ID(s) already exist in target.`);
+            console.log("     Resolve the issues above before attempting migration.");
+            process.exitCode = 1;
+          }
+          console.log("════════════════════════════════════════════════════════════════\n");
+          EOF
+
+      - name: Copy log to workspace for artifact upload
+        if: always()
+        run: |
+          mkdir -p /tmp/preflight-artifact
+          cp /tmp/fleet-control-migration/migration-log-*.json /tmp/preflight-artifact/ 2>/dev/null || true
+
+      - name: Upload preflight log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-control-preflight-log
+          path: /tmp/preflight-artifact/
+          retention-days: 30
