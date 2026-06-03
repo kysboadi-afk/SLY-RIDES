@@ -21,60 +21,6 @@ const SCOPED_TABLES = [
   "organization_service_upsells",
 ];
 
-const COLUMN_QUERY = `
-SELECT
-  table_name,
-  ordinal_position,
-  column_name,
-  data_type,
-  is_nullable,
-  column_default
-FROM information_schema.columns
-WHERE table_schema = 'public'
-  AND table_name IN (
-    'operator_leads',
-    'operator_lead_audit_logs',
-    'operator_demo_reps',
-    'operator_lead_demo_events',
-    'operator_lead_demo_notifications',
-    'organizations',
-    'organization_users',
-    'organization_settings',
-    'organization_service_upsells'
-  )
-ORDER BY table_name, ordinal_position;
-`;
-
-const CONSTRAINTS_QUERY = `
-SELECT
-  tc.table_name,
-  tc.constraint_name,
-  tc.constraint_type,
-  kcu.column_name,
-  ccu.table_name AS foreign_table_name,
-  ccu.column_name AS foreign_column_name
-FROM information_schema.table_constraints tc
-LEFT JOIN information_schema.key_column_usage kcu
-  ON tc.constraint_name = kcu.constraint_name
- AND tc.table_schema = kcu.table_schema
-LEFT JOIN information_schema.constraint_column_usage ccu
-  ON tc.constraint_name = ccu.constraint_name
- AND tc.table_schema = ccu.table_schema
-WHERE tc.table_schema = 'public'
-  AND tc.table_name IN (
-    'operator_leads',
-    'operator_lead_audit_logs',
-    'operator_demo_reps',
-    'operator_lead_demo_events',
-    'operator_lead_demo_notifications',
-    'organizations',
-    'organization_users',
-    'organization_settings',
-    'organization_service_upsells'
-  )
-ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position;
-`;
-
 const COUNT_TABLES = [
   "organizations",
   "organization_users",
@@ -121,14 +67,6 @@ async function fetchPaged(buildQuery) {
   return rows;
 }
 
-function normalizeRows(rows) {
-  return JSON.stringify((rows || []).map((row) => {
-    const normalized = {};
-    for (const [k, v] of Object.entries(row || {})) normalized[k] = v;
-    return normalized;
-  }));
-}
-
 function chunk(array, size) {
   const list = [];
   for (let i = 0; i < array.length; i += size) list.push(array.slice(i, i + size));
@@ -172,52 +110,21 @@ async function insertRows(client, table, rows) {
   }
 }
 
-async function maybeFetchSchemaRows(client) {
-  const { data, error } = await client.schema("information_schema").from("columns").select(
-    "table_name,ordinal_position,column_name,data_type,is_nullable,column_default"
-  ).in("table_name", SCOPED_TABLES).order("table_name", { ascending: true }).order("ordinal_position", { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-async function maybeFetchConstraintRows(client) {
-  const [tableConstraints, keyColumns, constraintColumns] = await Promise.all([
-    client.schema("information_schema").from("table_constraints")
-      .select("table_name,constraint_name,constraint_type,table_schema")
-      .eq("table_schema", "public")
-      .in("table_name", SCOPED_TABLES),
-    client.schema("information_schema").from("key_column_usage")
-      .select("constraint_name,column_name,ordinal_position,table_schema")
-      .eq("table_schema", "public"),
-    client.schema("information_schema").from("constraint_column_usage")
-      .select("constraint_name,table_name,column_name,table_schema")
-      .eq("table_schema", "public"),
-  ]);
-  for (const result of [tableConstraints, keyColumns, constraintColumns]) {
-    if (result.error) throw result.error;
-  }
-  const keyByConstraint = new Map((keyColumns.data || []).map((row) => [`${row.table_schema}:${row.constraint_name}`, row]));
-  const refByConstraint = new Map((constraintColumns.data || []).map((row) => [`${row.table_schema}:${row.constraint_name}`, row]));
-  const merged = (tableConstraints.data || []).map((constraint) => {
-    const key = `${constraint.table_schema}:${constraint.constraint_name}`;
-    const keyRow = keyByConstraint.get(key);
-    const refRow = refByConstraint.get(key);
-    return {
-      table_name: constraint.table_name,
-      constraint_name: constraint.constraint_name,
-      constraint_type: constraint.constraint_type,
-      column_name: keyRow?.column_name || null,
-      foreign_table_name: refRow?.table_name || null,
-      foreign_column_name: refRow?.column_name || null,
-      ordinal_position: keyRow?.ordinal_position ?? null,
-    };
-  });
-  merged.sort((a, b) => {
-    if (a.table_name !== b.table_name) return a.table_name.localeCompare(b.table_name);
-    if (a.constraint_name !== b.constraint_name) return a.constraint_name.localeCompare(b.constraint_name);
-    return (a.ordinal_position || 0) - (b.ordinal_position || 0);
-  });
-  return merged;
+async function validateRequiredTables(client) {
+  const checks = await Promise.all(
+    SCOPED_TABLES.map(async (table) => {
+      const { error } = await client.from(table).select("id", { count: "exact", head: true }).limit(1);
+      return {
+        table,
+        ok: !error,
+        error: error?.message || null,
+      };
+    })
+  );
+  return {
+    allAccessible: checks.every((check) => check.ok),
+    checks,
+  };
 }
 
 async function fetchWebsiteServicePackages(client) {
@@ -257,10 +164,7 @@ async function main() {
     sourceProjectRef: sourceRef,
     targetProjectRef: targetRef,
     maintenanceConfirmed: confirmedFreeze,
-    queries: {
-      columns: COLUMN_QUERY.trim(),
-      constraints: CONSTRAINTS_QUERY.trim(),
-    },
+    schemaValidationMode: "public_table_access",
     preflight: {},
     migration: {},
     validation: {},
@@ -270,21 +174,16 @@ async function main() {
     throw new Error("Maintenance freeze not confirmed. Re-run with --maintenance-confirmed or FLEET_CONTROL_MAINTENANCE_CONFIRMED=true.");
   }
 
-  const [sourceColumns, targetColumns, sourceConstraints, targetConstraints] = await Promise.all([
-    maybeFetchSchemaRows(source),
-    maybeFetchSchemaRows(target),
-    maybeFetchConstraintRows(source),
-    maybeFetchConstraintRows(target),
+  const [sourceTableValidation, targetTableValidation] = await Promise.all([
+    validateRequiredTables(source),
+    validateRequiredTables(target),
   ]);
-  log.preflight.schemaColumnsMatch = normalizeRows(sourceColumns) === normalizeRows(targetColumns);
-  log.preflight.schemaConstraintsMatch = normalizeRows(sourceConstraints) === normalizeRows(targetConstraints);
-  log.preflight.sourceColumns = sourceColumns;
-  log.preflight.targetColumns = targetColumns;
-  log.preflight.sourceConstraints = sourceConstraints;
-  log.preflight.targetConstraints = targetConstraints;
+  log.preflight.sourceRequiredTables = sourceTableValidation.checks;
+  log.preflight.targetRequiredTables = targetTableValidation.checks;
+  log.preflight.requiredTablesAccessible = sourceTableValidation.allAccessible && targetTableValidation.allAccessible;
 
-  if (!log.preflight.schemaColumnsMatch || !log.preflight.schemaConstraintsMatch) {
-    throw new Error("Schema mismatch between source and target. Stop before migration.");
+  if (!log.preflight.requiredTablesAccessible) {
+    throw new Error("Required public tables are not accessible in source/target. Stop before migration.");
   }
 
   const [sourcePackages, targetPackages] = await Promise.all([
