@@ -478,8 +478,8 @@ test("extension CTA keeps canonical vehicle ID for active rental", async () => {
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 55,
-        remaining_balance: 110,
+        total_paid: 370,
+        remaining_balance: 16,
         transaction_count: 2,
       },
       transactions: [],
@@ -506,8 +506,8 @@ test("extension CTA normalizes legacy vehicle ID for active rental", async () =>
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 50,
-        remaining_balance: 150,
+        total_paid: 370,
+        remaining_balance: 16,
         transaction_count: 3,
       },
       transactions: [],
@@ -552,19 +552,19 @@ test("extension CTA remains available for overdue active booking", async () => {
   assert.equal(query.get("vehicle"), "camry");
 });
 
-test("extension CTA remains available for active partial-payment state", async () => {
+test("extension CTA is blocked for active partial-payment state below 95%", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({
       status: "active_rental",
       paymentStatus: "partial",
-      totalPrice: 600,
-      depositPaid: 250,
-      balanceDue: 350,
+      totalPrice: 340,
+      depositPaid: 220,
+      balanceDue: 120,
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 250,
-        remaining_balance: 350,
+        total_paid: 220,
+        remaining_balance: 120,
         transaction_count: 3,
       },
       transactions: [],
@@ -573,10 +573,9 @@ test("extension CTA remains available for active partial-payment state", async (
   });
 
   const extensionCta = document.getElementById("extension-cta");
-  const query = getExtensionQuery(document);
-  assert.match(extensionCta.textContent, /Open Extension Flow/);
-  assert.equal(query.get("extend"), "1");
-  assert.equal(query.get("vehicle"), "camry");
+  const pillEl = document.getElementById("extension-status-pill");
+  assert.match(extensionCta.textContent, /Pay Balance First/, "CTA must direct renter to pay balance");
+  assert.match(pillEl.textContent, /95%/, "pill must show 95% requirement");
 });
 
 test("extension CTA keeps booking vehicle when inventory listing is unavailable/empty", async () => {
@@ -585,12 +584,15 @@ test("extension CTA keeps booking vehicle when inventory listing is unavailable/
       status: "active_rental",
       vehicleId: "legacy-manual-car-001",
       vehicleName: "Legacy Manual Car",
+      totalPrice: 230,
+      depositPaid: 130,
+      balanceDue: 100,
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 0,
-        remaining_balance: 275,
-        transaction_count: 0,
+        total_paid: 220,
+        remaining_balance: 10,
+        transaction_count: 3,
       },
       transactions: [],
     },
@@ -610,11 +612,14 @@ test("extension CTA resolves renamed vehicle ID from booking vehicle name", asyn
       status: "active_rental",
       vehicleId: "old-camry-id",
       vehicleName: "Camry 2012",
+      totalPrice: 250,
+      depositPaid: 130,
+      balanceDue: 120,
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 100,
-        remaining_balance: 200,
+        total_paid: 240,
+        remaining_balance: 10,
         transaction_count: 2,
       },
       transactions: [],
@@ -655,10 +660,10 @@ test("extension-account-state: overdue renter without late fee shows overdue bal
   assert.match(pillEl.textContent, /[Oo]verdue/, "pill should indicate overdue state");
 
   const ctaNote = document.getElementById("extension-cta-note");
-  assert.match(ctaNote.textContent, /[Oo]utstanding balance must be resolved/, "note should mention outstanding balance");
+  assert.match(ctaNote.textContent, /[Oo]verdue balance.*must be paid in full/, "note should require overdue balance to be paid");
 
   const cta = document.getElementById("extension-cta");
-  assert.match(cta.textContent, /Open Extension Flow/, "CTA still open for overdue renter");
+  assert.match(cta.textContent, /Pay Overdue Balance/, "CTA must direct renter to pay overdue balance");
 });
 
 test("extension-account-state: overdue renter with active late fee shows fee amount in dashboard", async () => {
@@ -719,6 +724,32 @@ test("extension-account-state: payment plan past_due shows delinquency warning",
 
   const ctaNote = document.getElementById("extension-cta-note");
   assert.match(ctaNote.textContent, /past-due installment/, "note should mention past-due installment");
+});
+
+test("extension-account-state: balance above $150 routes renter to pay balance first", async () => {
+  const document = await bootDashboard({
+    bookingPayload: baseBooking({
+      status: "active_rental",
+      paymentStatus: "partial",
+      balanceDue: 180,
+      paymentPlan: null,
+      extensionRiskOverride: null,
+    }),
+    ledgerPayload: EMPTY_LEDGER,
+    agreementPayload: {},
+    vehiclesPayload: [{ vehicle_id: "camry", vehicle_name: "Camry 2012" }],
+  });
+
+  const cta = document.getElementById("extension-cta");
+  assert.equal(cta.href, "https://slycarrentals.com/manage-booking.html?t=test-token#pay-balance-section");
+  assert.match(cta.textContent, /Pay Balance First/, "CTA should route renter to pay balance");
+
+  const pillEl = document.getElementById("extension-status-pill");
+  assert.match(pillEl.textContent, /above \$150/i, "pill should mention the extension balance cap");
+
+  const ctaNote = document.getElementById("extension-cta-note");
+  assert.match(ctaNote.textContent, /\$180\.00/, "note should show the current balance");
+  assert.match(ctaNote.textContent, /\$150\.00/, "note should show the threshold");
 });
 
 test("extension-account-state: extension_risk_override=block routes CTA to support", async () => {
