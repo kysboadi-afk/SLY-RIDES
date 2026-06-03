@@ -115,6 +115,7 @@ export default async function handler(req, res) {
     let sbActiveBookingRef = null; // canonical booking_ref from Supabase (used for conflict-skip)
     let sbWaivedAmount = 0;        // admin-applied late-fee waiver (subtracted from late fee below)
     let sbDeferredLateFee = 0;     // late fee flagged as 'pending_collection' — added to this PI
+    let sbExtensionCount = null;   // extension_count from Supabase (authoritative for policy checks)
 
     if (sb) {
       try {
@@ -125,7 +126,7 @@ export default async function handler(req, res) {
           if (bookingRef) {
             const { data: sbRow } = await sb
               .from("bookings")
-              .select("booking_ref, pickup_date, pickup_time, return_date, return_time, status, late_fee_waived_amount, late_fee_status, late_fee_amount")
+              .select("booking_ref, pickup_date, pickup_time, return_date, return_time, status, late_fee_waived_amount, late_fee_status, late_fee_amount, extension_count")
               .eq("booking_ref", bookingRef)
               .maybeSingle();
             if (sbRow && (sbRow.status === "active" || sbRow.status === "active_rental" || sbRow.status === "overdue")) {
@@ -160,6 +161,10 @@ export default async function handler(req, res) {
               if (sbRow.late_fee_status === "pending_collection" && sbRow.late_fee_amount) {
                 sbDeferredLateFee = Math.max(0, Number(sbRow.late_fee_amount) || 0);
               }
+              // Capture authoritative extension count.
+              if (sbRow.extension_count != null) {
+                sbExtensionCount = Number(sbRow.extension_count) || 0;
+              }
             }
           }
         } else {
@@ -168,7 +173,7 @@ export default async function handler(req, res) {
           // directly, matching by vehicle_id + email or phone + active status.
           const { data: sbActive } = await sb
             .from("bookings")
-            .select("booking_ref, pickup_date, pickup_time, return_date, return_time, status, customer_name, customer_email, customer_phone, late_fee_waived_amount, late_fee_status, late_fee_amount")
+            .select("booking_ref, pickup_date, pickup_time, return_date, return_time, status, customer_name, customer_email, customer_phone, late_fee_waived_amount, late_fee_status, late_fee_amount, extension_count")
             .eq("vehicle_id", vehicleId)
             .in("status", ["active", "active_rental", "overdue"]);
 
@@ -215,6 +220,9 @@ export default async function handler(req, res) {
                 }
                 if (row.late_fee_status === "pending_collection" && row.late_fee_amount) {
                   sbDeferredLateFee = Math.max(0, Number(row.late_fee_amount) || 0);
+                }
+                if (row.extension_count != null) {
+                  sbExtensionCount = Number(row.extension_count) || 0;
                 }
                 break;
               }
@@ -267,6 +275,22 @@ export default async function handler(req, res) {
       });
     }
 
+    // Block a second (or later) extension when any balance still remains.
+    // Once the renter has extended at least once, every dollar of outstanding
+    // balance must be paid before another extension can be approved.
+    const effectiveExtensionCount = Math.max(
+      Number(activeBooking.extensionCount || 0),
+      sbExtensionCount !== null ? sbExtensionCount : 0
+    );
+    if (effectiveExtensionCount >= 1 && ledgerBalance > 0) {
+      return res.status(400).json({
+        error: `You have already extended this rental and still have a remaining balance of $${ledgerBalance.toFixed(2)}. The full remaining balance must be paid before another extension can be approved.`,
+        priorExtensionBalanceBlocked: true,
+        ledgerBalance: ledgerBalance.toFixed(2),
+        extensionCount: effectiveExtensionCount,
+      });
+    }
+
     // Block extensions when less than 75% of total charges have been paid.
     if (ledgerTotalCharges > 0 && ledgerTotalPaid / ledgerTotalCharges < EXTENSION_MIN_PAID_PCT) {
       const pctPaid = Math.round((ledgerTotalPaid / ledgerTotalCharges) * 100);
@@ -308,7 +332,7 @@ export default async function handler(req, res) {
       try {
         let refQuery = sb
           .from("bookings")
-          .select("booking_ref, return_date, return_time, late_fee_waived_amount, late_fee_status, late_fee_amount")
+          .select("booking_ref, return_date, return_time, late_fee_waived_amount, late_fee_status, late_fee_amount, extension_count")
           .eq("vehicle_id", vehicleId)
           .in("status", ["active", "active_rental", "overdue"]);
         if (trimmedEmail) {
@@ -333,6 +357,9 @@ export default async function handler(req, res) {
           }
           if (!sbDeferredLateFee && refRow.late_fee_status === "pending_collection" && refRow.late_fee_amount) {
             sbDeferredLateFee = Math.max(0, Number(refRow.late_fee_amount) || 0);
+          }
+          if (sbExtensionCount === null && refRow.extension_count != null) {
+            sbExtensionCount = Number(refRow.extension_count) || 0;
           }
         }
       } catch (refFallbackErr) {
