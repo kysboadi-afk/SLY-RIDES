@@ -721,6 +721,32 @@ test("extension-account-state: payment plan past_due shows delinquency warning",
   assert.match(ctaNote.textContent, /past-due installment/, "note should mention past-due installment");
 });
 
+test("extension-account-state: balance above $150 routes renter to pay balance first", async () => {
+  const document = await bootDashboard({
+    bookingPayload: baseBooking({
+      status: "active_rental",
+      paymentStatus: "partial",
+      balanceDue: 180,
+      paymentPlan: null,
+      extensionRiskOverride: null,
+    }),
+    ledgerPayload: EMPTY_LEDGER,
+    agreementPayload: {},
+    vehiclesPayload: [{ vehicle_id: "camry", vehicle_name: "Camry 2012" }],
+  });
+
+  const cta = document.getElementById("extension-cta");
+  assert.equal(cta.href, "https://slycarrentals.com/manage-booking.html?t=test-token#pay-balance-section");
+  assert.match(cta.textContent, /Pay Balance First/, "CTA should route renter to pay balance");
+
+  const pillEl = document.getElementById("extension-status-pill");
+  assert.match(pillEl.textContent, /above \$150/i, "pill should mention the extension balance cap");
+
+  const ctaNote = document.getElementById("extension-cta-note");
+  assert.match(ctaNote.textContent, /\$180\.00/, "note should show the current balance");
+  assert.match(ctaNote.textContent, /\$150\.00/, "note should show the threshold");
+});
+
 test("extension-account-state: extension_risk_override=block routes CTA to support", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({

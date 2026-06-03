@@ -34,6 +34,7 @@ import {
 } from "./_extension-lifecycle.js";
 
 const ALLOWED_ORIGINS = ["https://www.slytrans.com", "https://slytrans.com", "https://slycarrentals.com", "https://www.slycarrentals.com", "https://admin.slycarrentals.com"];
+const EXTENSION_BALANCE_BLOCK_THRESHOLD = 150;
 
 export default async function handler(req, res) {
   // CORS — allow requests from the production frontend only
@@ -248,6 +249,15 @@ export default async function handler(req, res) {
       } catch (ledgerErr) {
         console.warn("extend-rental: ledger query failed (non-fatal):", ledgerErr.message);
       }
+    }
+
+    if (ledgerBalance > EXTENSION_BALANCE_BLOCK_THRESHOLD) {
+      return res.status(400).json({
+        error: `Your current balance of $${ledgerBalance.toFixed(2)} exceeds the $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} extension limit. Please pay your balance down to $${EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2)} or less before requesting an extension.`,
+        balanceBlocked: true,
+        ledgerBalance: ledgerBalance.toFixed(2),
+        extensionBalanceThreshold: EXTENSION_BALANCE_BLOCK_THRESHOLD.toFixed(2),
+      });
     }
 
     const isActiveRentalForPartial = activeBooking.status === "active_rental" || activeBooking.status === "active";

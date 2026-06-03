@@ -759,6 +759,47 @@ test("extend-rental: 400 rejects customPaymentAmount for overdue rentals", async
   assert.match(String(res._body?.error || ""), /only available for active rentals/i);
 });
 
+test("extend-rental: 400 blocks extension when existing ledger balance exceeds $150", async () => {
+  capturedStripeParams = null;
+  mockLedgerSummary = {
+    remaining_balance: 180, total_paid: 70, total_charges: 250,
+    total_credits: 70, total_waived: 0, total_refunds: 0,
+    net_balance: 180, credit_balance: 0, transaction_count: 2,
+  };
+  const active = makeActiveBooking();
+  mockBookings = { camry: [active] };
+  sbClient = makeSupabaseClient({
+    queryMap: [
+      {
+        match: (t) => t === "bookings",
+        rows: [{
+          booking_ref: "bk-camry-active-001",
+          return_date: "2026-04-30",
+          return_time: "17:00:00",
+          status: "active_rental",
+          late_fee_waived_amount: null,
+          late_fee_status: null,
+          late_fee_amount: null,
+        }],
+      },
+    ],
+  });
+
+  const res = makeRes();
+  await handler(makeReq({
+    vehicleId: "camry",
+    email: "alice@example.com",
+    newReturnDate: "2026-05-05",
+  }), res);
+
+  assert.equal(res._status, 400);
+  assert.equal(res._body.balanceBlocked, true);
+  assert.equal(res._body.ledgerBalance, "180.00");
+  assert.equal(res._body.extensionBalanceThreshold, "150.00");
+  assert.match(String(res._body?.error || ""), /pay your balance down/i);
+  assert.equal(capturedStripeParams, null, "Stripe PI should not be created when balance-first block applies");
+});
+
 // ── Metadata ──────────────────────────────────────────────────────────────────
 
 test("extend-rental: PaymentIntent is created with type=rental_extension metadata", async () => {
@@ -1316,4 +1357,3 @@ test("extension-financial-trace: all required trace fields present in response",
     assert.ok(field in trace, `trace must include field: ${field}`);
   }
 });
-
