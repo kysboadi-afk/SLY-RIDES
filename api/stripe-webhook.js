@@ -1566,7 +1566,11 @@ async function processStripePayment(stripe, paymentIntent, opts = {}) {
 
   // Normalise type: metadata uses "rental_extension" but the revenue_records
   // table convention (and existing callers) use "extension".
-  const revenueType = type === "rental_extension" ? "extension" : (type || "rental");
+  // Similarly normalise balance payment variants to "rental_balance".
+  const revenueType =
+    type === "rental_extension"                                        ? "extension"      :
+    type === "partial_balance" || type === "balance_payment"           ? "rental_balance" :
+    (type || "rental");
 
   logWebhookOrgFallback({ endpoint: "stripe-webhook:processStripePayment", action: "create_revenue_record", table: "revenue_records", bookingRef: booking_id, paymentIntentId: paymentIntent.id });
   try {
@@ -3600,21 +3604,34 @@ export default async function handler(req, res) {
             bookingPatch.phone || "",
             bookingPatch.email || "",
           );
-          await autoUpsertBooking({ ...bookingPatch, customerId }, { strict: true });
-          await autoCreateRevenueRecord({
-            bookingId:       bookingPatch.bookingId || bookingRef,
-            paymentIntentId: paymentIntent.id,
-            vehicleId:       bookingPatch.vehicleId || vehicle_id,
-            customerId,
-            name:            bookingPatch.name || meta.renter_name || "",
-            phone:           bookingPatch.phone || "",
-            email:           bookingPatch.email || meta.email || "",
-            pickupDate:      bookingPatch.pickupDate || meta.pickup_date || "",
-            returnDate:      bookingPatch.returnDate || meta.return_date || "",
-            amountPaid:      paidAmount,
-            paymentMethod:   "stripe",
-            type:            "rental_balance",
-          }, { strict: true, requireStripeFee: false });
+          // Booking status update is best-effort — a conflict trigger (or other
+          // transient Supabase error) must NOT prevent the revenue record or
+          // ledger credit from being written.  Log the failure and continue.
+          try {
+            await autoUpsertBooking({ ...bookingPatch, customerId }, { strict: true });
+          } catch (upsertErr) {
+            console.error("stripe-webhook: balance_payment booking upsert failed (non-fatal — revenue + ledger will still be recorded):", upsertErr.message);
+          }
+          // Revenue recording is also best-effort so a DB failure here does not
+          // prevent the ledger credit from being written.
+          try {
+            await autoCreateRevenueRecord({
+              bookingId:       bookingPatch.bookingId || bookingRef,
+              paymentIntentId: paymentIntent.id,
+              vehicleId:       bookingPatch.vehicleId || vehicle_id,
+              customerId,
+              name:            bookingPatch.name || meta.renter_name || "",
+              phone:           bookingPatch.phone || "",
+              email:           bookingPatch.email || meta.email || "",
+              pickupDate:      bookingPatch.pickupDate || meta.pickup_date || "",
+              returnDate:      bookingPatch.returnDate || meta.return_date || "",
+              amountPaid:      paidAmount,
+              paymentMethod:   "stripe",
+              type:            "rental_balance",
+            }, { strict: true, requireStripeFee: false });
+          } catch (revErr) {
+            console.error("stripe-webhook: balance_payment revenue record failed (non-fatal — ledger will still be recorded):", revErr.message);
+          }
           // Auto-activate if the renter's pickup time has already arrived —
           // e.g. they paid the balance on the day of pickup.
           try {

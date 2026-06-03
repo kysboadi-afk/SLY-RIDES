@@ -2297,6 +2297,8 @@ async function runReconciliation() {
     const NON_NEW_BOOKING_TYPES = new Set([
       "rental_extension",
       "balance_payment",
+      "rental_balance",
+      "partial_balance",
     ]);
 
     const repairedPIIds = [];
@@ -2453,6 +2455,88 @@ async function runReconciliation() {
             console.error(
               `scheduled-reminders reconciliation: extension revenue recovery FAILED for PI ${pi.id}:`,
               extRecovErr.message
+            );
+          }
+        } else if (
+          paymentType === "balance_payment" ||
+          paymentType === "rental_balance"  ||
+          paymentType === "partial_balance"
+        ) {
+          // Balance payment: the booking already exists and was updated by the
+          // primary webhook handler.  Only the revenue record is missing.
+          // Recover it directly via autoCreateRevenueRecord — never touch the
+          // booking row so we avoid the Supabase date-conflict trigger.
+          try {
+            const balMeta = pi.metadata || {};
+            const balRef  = balMeta.booking_id || balMeta.original_booking_id || "";
+            if (!balRef) {
+              throw new Error(`missing booking_id in metadata (pi=${pi.id})`);
+            }
+            const sbBal = getSupabaseAdmin();
+            let resolvedBalRef = balRef;
+            if (sbBal) {
+              const { data: balRefRow } = await sbBal
+                .from("bookings")
+                .select("booking_ref")
+                .eq("booking_ref", balRef)
+                .maybeSingle();
+              if (balRefRow?.booking_ref) {
+                resolvedBalRef = balRefRow.booking_ref;
+              } else if (pi.id) {
+                const { data: byPiRow } = await sbBal
+                  .from("bookings")
+                  .select("booking_ref")
+                  .eq("payment_intent_id", pi.id)
+                  .maybeSingle();
+                if (byPiRow?.booking_ref) resolvedBalRef = byPiRow.booking_ref;
+              }
+            }
+            // Resolve Stripe fee (non-blocking — reconcile.js backfills if missing).
+            let balFeeFields = { stripeFee: null, stripeNet: null };
+            try {
+              const expandedBalPI = await stripe.paymentIntents.retrieve(pi.id, {
+                expand: ["latest_charge.balance_transaction"],
+              });
+              const balCharge = expandedBalPI?.latest_charge;
+              const balBt = balCharge && typeof balCharge === "object" ? balCharge.balance_transaction : null;
+              if (balBt && typeof balBt === "object") {
+                const balFeeCents = balBt.fee != null ? Number(balBt.fee) : null;
+                const balNetCents = balBt.net != null ? Number(balBt.net) : null;
+                if (balFeeCents != null && Number.isFinite(balFeeCents)) {
+                  balFeeFields = {
+                    stripeFee: Math.round(balFeeCents) / 100,
+                    stripeNet: balNetCents != null && Number.isFinite(balNetCents) ? Math.round(balNetCents) / 100 : null,
+                  };
+                }
+              }
+            } catch (balFeeErr) {
+              console.warn(
+                `scheduled-reminders reconciliation: balance PI ${pi.id} fee lookup failed (non-fatal — fee will be backfilled):`,
+                balFeeErr.message
+              );
+            }
+            await autoCreateRevenueRecord({
+              bookingId:       resolvedBalRef,
+              paymentIntentId: pi.id,
+              vehicleId:       balMeta.vehicle_id || "",
+              name:            balMeta.renter_name  || "",
+              phone:           balMeta.renter_phone || "",
+              email:           balMeta.email || "",
+              pickupDate:      balMeta.pickup_date  || "",
+              returnDate:      balMeta.return_date  || "",
+              amountPaid:      Math.round((pi.amount_received || pi.amount || 0)) / 100,
+              paymentMethod:   "stripe",
+              type:            "rental_balance",
+              ...balFeeFields,
+            }, { strict: false, requireStripeFee: false });
+            repairedPIIds.push(pi.id);
+            console.log(`scheduled-reminders reconciliation: balance revenue record recovered for PI ${pi.id} (booking=${resolvedBalRef})`);
+          } catch (balRecovErr) {
+            failedPIIds.push(pi.id);
+            repairErrors.set(pi.id, balRecovErr.message);
+            console.error(
+              `scheduled-reminders reconciliation: balance revenue recovery FAILED for PI ${pi.id}:`,
+              balRecovErr.message
             );
           }
         } else {
