@@ -34,7 +34,7 @@ import {
 } from "./_extension-lifecycle.js";
 
 const ALLOWED_ORIGINS = ["https://www.slytrans.com", "https://slytrans.com", "https://slycarrentals.com", "https://www.slycarrentals.com", "https://admin.slycarrentals.com"];
-const EXTENSION_MIN_PAID_PCT = 0.95;
+const EXTENSION_MIN_PAID_PCT = 0.75;
 
 export default async function handler(req, res) {
   // CORS — allow requests from the production frontend only
@@ -267,11 +267,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // Block extensions when less than 95% of total charges have been paid.
+    // Block extensions when less than 75% of total charges have been paid.
     if (ledgerTotalCharges > 0 && ledgerTotalPaid / ledgerTotalCharges < EXTENSION_MIN_PAID_PCT) {
       const pctPaid = Math.round((ledgerTotalPaid / ledgerTotalCharges) * 100);
       return res.status(400).json({
-        error: `At least 95% of your total rental balance must be paid before requesting an extension. You have paid ${pctPaid}% ($${ledgerTotalPaid.toFixed(2)} of $${ledgerTotalCharges.toFixed(2)}). Please pay more of your balance before requesting an extension.`,
+        error: `At least 75% of your total rental balance must be paid before requesting an extension. You have paid ${pctPaid}% ($${ledgerTotalPaid.toFixed(2)} of $${ledgerTotalCharges.toFixed(2)}). Please pay more of your balance before requesting an extension.`,
         under95PctBlocked: true,
         ledgerTotalCharges: ledgerTotalCharges.toFixed(2),
         ledgerTotalPaid: ledgerTotalPaid.toFixed(2),
