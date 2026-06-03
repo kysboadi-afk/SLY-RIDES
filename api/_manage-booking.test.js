@@ -439,3 +439,44 @@ test("create_balance_payment_intent marks partial payments as partial_balance wh
   assert.equal(stripeCreateCalls[0].automatic_payment_methods?.enabled, true);
   assert.equal(stripeCreateCalls[0].metadata.payment_type, "partial_balance");
 });
+
+test("create_balance_payment_intent allows overdue rentals to pay remaining balance", async () => {
+  process.env.STRIPE_SECRET_KEY = "sk_test_manage_booking";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_manage_booking";
+
+  const bookingRow = {
+    booking_ref: "bk-fallback-001",
+    vehicle_id: "camry",
+    category: "car",
+    status: "overdue",
+    total_price: 520,
+    deposit_paid: 220,
+    remaining_balance: 300,
+    customer_name: "Overdue Renter",
+    customer_email: "overdue@example.com",
+    customer_phone: "+13105550003",
+    pickup_date: "2026-08-10",
+    return_date: "2026-08-15",
+  };
+
+  supabaseClient = {
+    from(table) {
+      assert.equal(table, "bookings");
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async maybeSingle() {
+          return makeQueryResult(bookingRow);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({ action: "create_balance_payment_intent", token: "valid-token" }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.paymentAmount, 300);
+  assert.equal(stripeCreateCalls.length, 1);
+  assert.equal(stripeCreateCalls[0].metadata.payment_type, "rental_balance");
+});
