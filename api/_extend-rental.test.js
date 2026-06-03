@@ -759,12 +759,12 @@ test("extend-rental: 400 rejects customPaymentAmount for overdue rentals", async
   assert.match(String(res._body?.error || ""), /only available for active rentals/i);
 });
 
-test("extend-rental: allows extension when balance exceeds $150 but at least 95% is paid", async () => {
+test("extend-rental: allows extension when balance exceeds $150 but at least 75% is paid", async () => {
   capturedStripeParams = null;
   mockLedgerSummary = {
-    remaining_balance: 180, total_paid: 3820, total_charges: 4000,
-    total_credits: 3820, total_waived: 0, total_refunds: 0,
-    net_balance: 180, credit_balance: 0, transaction_count: 2,
+    remaining_balance: 1000, total_paid: 3000, total_charges: 4000,
+    total_credits: 3000, total_waived: 0, total_refunds: 0,
+    net_balance: 1000, credit_balance: 0, transaction_count: 2,
   };
   const active = makeActiveBooking();
   mockBookings = { camry: [active] };
@@ -794,7 +794,7 @@ test("extend-rental: allows extension when balance exceeds $150 but at least 95%
 
   assert.equal(res._status, 200);
   assert.ok(res._body?.clientSecret, "handler should still create an extension payment intent");
-  assert.ok(capturedStripeParams, "Stripe PI should be created when the 95% rule is satisfied");
+  assert.ok(capturedStripeParams, "Stripe PI should be created when the 75% rule is satisfied");
   mockLedgerSummary = {
     remaining_balance: 0, total_paid: 0, total_charges: 0,
     total_credits: 0, total_waived: 0, total_refunds: 0,

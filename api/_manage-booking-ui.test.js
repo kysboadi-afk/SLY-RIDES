@@ -552,7 +552,7 @@ test("extension CTA remains available for overdue active booking", async () => {
   assert.equal(query.get("vehicle"), "camry");
 });
 
-test("extension CTA is blocked for active partial-payment state below 95%", async () => {
+test("extension CTA is blocked for active partial-payment state below 75%", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({
       status: "active_rental",
@@ -575,7 +575,7 @@ test("extension CTA is blocked for active partial-payment state below 95%", asyn
   const extensionCta = document.getElementById("extension-cta");
   const pillEl = document.getElementById("extension-status-pill");
   assert.match(extensionCta.textContent, /Pay Balance First/, "CTA must direct renter to pay balance");
-  assert.match(pillEl.textContent, /95%/, "pill must show 95% requirement");
+  assert.match(pillEl.textContent, /75%/, "pill must show 75% requirement");
 });
 
 test("extension CTA keeps booking vehicle when inventory listing is unavailable/empty", async () => {
@@ -726,22 +726,22 @@ test("extension-account-state: payment plan past_due shows delinquency warning",
   assert.match(ctaNote.textContent, /past-due installment/, "note should mention past-due installment");
 });
 
-test("extension-account-state: balance above $150 stays eligible when 95% threshold is satisfied", async () => {
+test("extension-account-state: balance above $150 stays eligible when 75% threshold is satisfied", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({
       status: "active_rental",
       paymentStatus: "partial",
       totalPrice: 4000,
-      depositPaid: 3820,
-      balanceDue: 180,
+      depositPaid: 3000,
+      balanceDue: 1000,
       paymentPlan: null,
       extensionRiskOverride: null,
     }),
     ledgerPayload: {
       summary: {
-        total_paid: 3820,
+        total_paid: 3000,
         total_charges: 4000,
-        remaining_balance: 180,
+        remaining_balance: 1000,
         transaction_count: 4,
       },
       transactions: [],

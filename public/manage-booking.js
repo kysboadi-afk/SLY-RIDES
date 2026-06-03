@@ -1190,7 +1190,7 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const extHasActiveLateF = (extLateFeeStatus === "assessed" || extLateFeeStatus === "pending_collection") && extLateFeeAmount > 0;
     const extIsBlocked = extRiskOverride === "block";
     const extHasAnyOverdueBalance = overdueAmount > 0;
-    const extUnder95PctPaid = ledgerSummaryUsable && total > 0 && (paid / total) < 0.95;
+    const extUnder75PctPaid = ledgerSummaryUsable && total > 0 && (paid / total) < 0.75;
 
     let extCtaText = "⏱️ Open Extension Flow";
     let extCtaHref = extensionHref;
@@ -1220,12 +1220,12 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     } else if (extIsPlanDelinquent) {
       extPillText = "⚠️ Payment plan past due — review needed";
       extCtaNote = "Partial balance payment may be required before extension. Your payment plan has a past-due installment.";
-    } else if (extUnder95PctPaid) {
+    } else if (extUnder75PctPaid) {
       const pctPaid = Math.round((paid / total) * 100);
-      extPillText = `⚠️ Less than 95% paid — pay balance before extension`;
+      extPillText = `⚠️ Less than 75% paid — pay balance before extension`;
       extCtaText = "💳 Pay Balance First";
       extCtaHref = "#pay-balance-section";
-      extCtaNote = `At least 95% of your total rental balance must be paid before an extension can be requested. You have paid ${pctPaid}% (${fmt(paid)} of ${fmt(total)}). Please pay more of your balance first.`;
+      extCtaNote = `At least 75% of your total rental balance must be paid before an extension can be requested. You have paid ${pctPaid}% (${fmt(paid)} of ${fmt(total)}). Please pay more of your balance first.`;
     } else if (extHasActiveLateF) {
       extPillText = "ℹ️ Late fee pending ($" + extLateFeeAmount.toFixed(2) + ")";
       extCtaNote = "Late fee of $" + extLateFeeAmount.toFixed(2) + " will be included in your extension payment at checkout.";
@@ -1241,7 +1241,7 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     setText("extension-overdue", fmt(overdueAmount));
     setText("extension-balance-note", balance > 0 ? "Current balance remains due before or alongside any extension arrangements." : "Your existing booking balance is currently clear.");
     setText("extension-overdue-note", overdueAmount > 0 ? "An overdue amount is currently flagged on your account." : "No overdue extension-related amount is flagged.");
-    setText("extension-paid-pct-note", total > 0 ? `${Math.round((paid / total) * 100)}% of total balance paid (${fmt(paid)} of ${fmt(total)}). Extensions require at least 95% paid and no overdue balance.` : "Extension requires all overdue balances cleared and at least 95% of total balance paid.");
+    setText("extension-paid-pct-note", total > 0 ? `${Math.round((paid / total) * 100)}% of total balance paid (${fmt(paid)} of ${fmt(total)}). Extensions require at least 75% paid and no overdue balance.` : "Extension requires all overdue balances cleared and at least 75% of total balance paid.");
     setText("extension-cta-note", extCtaNote);
 
     const editableStatuses = ["reserved", "reserved_unpaid", "pending"];
