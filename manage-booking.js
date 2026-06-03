@@ -1191,6 +1191,7 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const extIsBlocked = extRiskOverride === "block";
     const extHasAnyOverdueBalance = overdueAmount > 0;
     const extUnder75PctPaid = ledgerSummaryUsable && total > 0 && (paid / total) < 0.75;
+    const extHasPartialWithBalance = ledgerSummaryUsable && paid > 0 && balance > 0;
 
     let extCtaText = "⏱️ Open Extension Flow";
     let extCtaHref = extensionHref;

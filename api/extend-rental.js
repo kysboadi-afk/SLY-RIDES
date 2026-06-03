@@ -267,6 +267,17 @@ export default async function handler(req, res) {
       });
     }
 
+    // Block extensions when a partial payment has been made but any balance remains.
+    // Even $1 of outstanding balance must be cleared before another extension is granted.
+    if (ledgerTotalPaid > 0 && ledgerBalance > 0) {
+      return res.status(400).json({
+        error: `You have a remaining balance of $${ledgerBalance.toFixed(2)} that must be paid in full before requesting another extension. Any remaining balance — even $1 — must be cleared first.`,
+        partialBalanceBlocked: true,
+        ledgerBalance: ledgerBalance.toFixed(2),
+        ledgerTotalPaid: ledgerTotalPaid.toFixed(2),
+      });
+    }
+
     // Block extensions when less than 75% of total charges have been paid.
     if (ledgerTotalCharges > 0 && ledgerTotalPaid / ledgerTotalCharges < EXTENSION_MIN_PAID_PCT) {
       const pctPaid = Math.round((ledgerTotalPaid / ledgerTotalCharges) * 100);
