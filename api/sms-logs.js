@@ -2,7 +2,7 @@
 // Vercel serverless function — returns the 100 most recent SMS delivery log
 // entries from the sms_delivery_logs table.  Admin-protected.
 //
-// GET /api/sms-logs?secret=<ADMIN_SECRET>
+// GET /api/sms-logs?secret=<ADMIN_SECRET>&booking_ref=bk-123&phone=5550101001&message_type=booking
 // Response: { "logs": [ { id, booking_ref, vehicle_id, renter_phone,
 //                          message_type, message_body, status, error,
 //                          provider_id, created_at }, … ] }
@@ -57,11 +57,26 @@ export default async function handler(req, res) {
 
   // GET — return last 100 log entries
   try {
-    const { data, error } = await sb
+    const bookingRefFilter = String(req.query?.booking_ref || req.query?.bookingRef || "").trim();
+    const phoneFilter = String(req.query?.phone || req.query?.renter_phone || "").trim();
+    const messageTypeFilter = String(req.query?.message_type || req.query?.messageType || "").trim();
+
+    let query = sb
       .from("sms_delivery_logs")
       .select("id, booking_ref, vehicle_id, renter_phone, message_type, message_body, status, error, provider_id, created_at")
-      .order("created_at", { ascending: false })
-      .limit(100);
+      .order("created_at", { ascending: false });
+
+    if (bookingRefFilter) {
+      query = query.ilike("booking_ref", `%${bookingRefFilter}%`);
+    }
+    if (phoneFilter) {
+      query = query.ilike("renter_phone", `%${phoneFilter}%`);
+    }
+    if (messageTypeFilter) {
+      query = query.ilike("message_type", `%${messageTypeFilter}%`);
+    }
+
+    const { data, error } = await query.limit(100);
 
     if (error) {
       console.error("[sms-logs] Supabase query error:", error.message);

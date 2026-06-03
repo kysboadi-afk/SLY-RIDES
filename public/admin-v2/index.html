@@ -2496,6 +2496,13 @@
               <button class="btn btn-danger btn-sm" onclick="clearSmsLogs()">🗑 Clear</button>
             </div>
           </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px 0;">
+            <input id="sms-logs-filter-booking" class="input" style="max-width:220px;" placeholder="Booking ref (bk-...)" onkeydown="if(event.key==='Enter') loadSmsLogs()" />
+            <input id="sms-logs-filter-phone" class="input" style="max-width:220px;" placeholder="Phone (+1...)" onkeydown="if(event.key==='Enter') loadSmsLogs()" />
+            <input id="sms-logs-filter-type" class="input" style="max-width:220px;" placeholder="Type (booking / education)" onkeydown="if(event.key==='Enter') loadSmsLogs()" />
+            <button class="btn btn-primary btn-sm" onclick="loadSmsLogs()">Search</button>
+            <button class="btn btn-secondary btn-sm" onclick="resetSmsLogsFilters()">Reset</button>
+          </div>
           <div id="sms-logs-loading" class="loading" style="display:none;"><div class="loading-spinner"></div><div>Loading…</div></div>
           <div id="sms-logs-error" style="display:none;color:var(--danger);font-size:13px;padding:8px 0;"></div>
           <div id="sms-logs-table-wrap" style="display:none;overflow-x:auto;">
@@ -12041,6 +12048,13 @@ async function fixHealthCheck(checkKey, btn) {
 }
 
 // ── SMS Logs ───────────────────────────────────────────────────────────────
+function getSmsLogsFilters() {
+  const bookingRef = String(document.getElementById('sms-logs-filter-booking')?.value || '').trim();
+  const phone = String(document.getElementById('sms-logs-filter-phone')?.value || '').trim();
+  const messageType = String(document.getElementById('sms-logs-filter-type')?.value || '').trim();
+  return { bookingRef, phone, messageType };
+}
+
 async function loadSmsLogs() {
   const loading  = document.getElementById('sms-logs-loading');
   const errorEl  = document.getElementById('sms-logs-error');
@@ -12053,7 +12067,12 @@ async function loadSmsLogs() {
   if (tableWrap) tableWrap.style.display = 'none';
 
   try {
-    const url = `${API_BASE}/api/sms-logs`;
+    const { bookingRef, phone, messageType } = getSmsLogsFilters();
+    const params = new URLSearchParams();
+    if (bookingRef) params.set('booking_ref', bookingRef);
+    if (phone) params.set('phone', phone);
+    if (messageType) params.set('message_type', messageType);
+    const url = `${API_BASE}/api/sms-logs${params.toString() ? `?${params.toString()}` : ''}`;
     const res  = await fetch(url, { headers: { 'Authorization': 'Bearer ' + adminSessionToken } });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -12092,13 +12111,29 @@ async function loadSmsLogs() {
       }).join('');
     }
 
-    if (emptyEl)   emptyEl.style.display  = logs.length === 0 ? '' : 'none';
+    if (emptyEl) {
+      const hasFilters = !!(bookingRef || phone || messageType);
+      emptyEl.textContent = hasFilters
+        ? 'No SMS logs matched your search.'
+        : 'No SMS logs yet. Send a reminder or booking confirmation to begin delivery tracking.';
+      emptyEl.style.display = logs.length === 0 ? '' : 'none';
+    }
     if (tableWrap) tableWrap.style.display = '';
   } catch (err) {
     if (errorEl) { errorEl.textContent = 'Failed to load SMS logs: ' + err.message; errorEl.style.display = ''; }
   } finally {
     if (loading) loading.style.display = 'none';
   }
+}
+
+function resetSmsLogsFilters() {
+  const bookingInput = document.getElementById('sms-logs-filter-booking');
+  const phoneInput = document.getElementById('sms-logs-filter-phone');
+  const typeInput = document.getElementById('sms-logs-filter-type');
+  if (bookingInput) bookingInput.value = '';
+  if (phoneInput) phoneInput.value = '';
+  if (typeInput) typeInput.value = '';
+  loadSmsLogs();
 }
 
 async function clearSmsLogs() {
@@ -14101,14 +14136,26 @@ function getDemoResponse(path, body) {
     },
   });
   if (p.endsWith('/api/v2-diagnostics')) return Promise.resolve({ checks: [], status: 'ok' });
-  if (p.endsWith('/api/v2-sms-logs') || p.endsWith('/api/sms-logs')) return Promise.resolve({ logs: [
-    { booking_ref: 'bk-demo-001', vehicle_id: 'camry', renter_phone: '(555) 010-1001', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_001a', created_at: new Date(Date.now() - 86400000 * 9).toISOString(),  error: null },
-    { booking_ref: 'bk-demo-001', vehicle_id: 'camry', renter_phone: '(555) 010-1001', message_type: 'overdue_notice',      status: 'sent',   provider_id: 'SM_demo_001b', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
-    { booking_ref: 'bk-demo-002', vehicle_id: 'civic', renter_phone: '(555) 010-1002', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_002a', created_at: new Date(Date.now() - 86400000 * 4).toISOString(),  error: null },
-    { booking_ref: 'bk-demo-002', vehicle_id: 'civic', renter_phone: '(555) 010-1002', message_type: 'return_reminder',    status: 'sent',   provider_id: 'SM_demo_002b', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
-    { booking_ref: 'bk-demo-003', vehicle_id: 'rav4',  renter_phone: '(555) 010-1003', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_003a', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
-    { booking_ref: 'bk-demo-004', vehicle_id: 'camry', renter_phone: '(555) 010-1004', message_type: 'booking_confirmed',  status: 'failed', provider_id: null,           created_at: new Date(Date.now() - 86400000 * 0.5).toISOString(), error: 'Carrier rejected — invalid number format' },
-  ] });
+  if (p.endsWith('/api/v2-sms-logs') || p.endsWith('/api/sms-logs')) {
+    const parsed = new URL(path, window.location.origin);
+    const bookingFilter = String(parsed.searchParams.get('booking_ref') || '').trim().toLowerCase();
+    const phoneFilter = String(parsed.searchParams.get('phone') || '').trim().toLowerCase();
+    const typeFilter = String(parsed.searchParams.get('message_type') || '').trim().toLowerCase();
+    const logs = [
+      { booking_ref: 'bk-demo-001', vehicle_id: 'camry', renter_phone: '(555) 010-1001', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_001a', created_at: new Date(Date.now() - 86400000 * 9).toISOString(),  error: null },
+      { booking_ref: 'bk-demo-001', vehicle_id: 'camry', renter_phone: '(555) 010-1001', message_type: 'overdue_notice',      status: 'sent',   provider_id: 'SM_demo_001b', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
+      { booking_ref: 'bk-demo-002', vehicle_id: 'civic', renter_phone: '(555) 010-1002', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_002a', created_at: new Date(Date.now() - 86400000 * 4).toISOString(),  error: null },
+      { booking_ref: 'bk-demo-002', vehicle_id: 'civic', renter_phone: '(555) 010-1002', message_type: 'return_reminder',    status: 'sent',   provider_id: 'SM_demo_002b', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
+      { booking_ref: 'bk-demo-003', vehicle_id: 'rav4',  renter_phone: '(555) 010-1003', message_type: 'booking_confirmed',  status: 'sent',   provider_id: 'SM_demo_003a', created_at: new Date(Date.now() - 86400000 * 1).toISOString(),  error: null },
+      { booking_ref: 'bk-demo-004', vehicle_id: 'camry', renter_phone: '(555) 010-1004', message_type: 'booking_confirmed',  status: 'failed', provider_id: null,           created_at: new Date(Date.now() - 86400000 * 0.5).toISOString(), error: 'Carrier rejected — invalid number format' },
+    ].filter((row) => {
+      const bookingOk = !bookingFilter || String(row.booking_ref || '').toLowerCase().includes(bookingFilter);
+      const phoneOk = !phoneFilter || String(row.renter_phone || '').toLowerCase().includes(phoneFilter);
+      const typeOk = !typeFilter || String(row.message_type || '').toLowerCase().includes(typeFilter);
+      return bookingOk && phoneOk && typeOk;
+    });
+    return Promise.resolve({ logs });
+  }
   if (p.endsWith('/api/bouncie-location')) return Promise.resolve({ connected: false, message: 'GPS tracking is not available in walkthrough mode.' });
 
   return Promise.resolve({ ok: true, _demo: true });
