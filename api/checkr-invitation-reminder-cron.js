@@ -5,6 +5,11 @@ import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
 
 const DEFAULT_REMINDER_HOURS = 6;
 const BATCH_LIMIT = 50;
+const REQUIRED_REMINDER_COLUMNS = [
+  "checkr_invitation_url",
+  "checkr_invitation_sent_at",
+  "checkr_invitation_reminder_sent_at",
+];
 
 function toPositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -14,6 +19,14 @@ function toPositiveInt(value, fallback) {
 
 function cutoffIso(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+function missingReminderColumns(error) {
+  const msg = String(error?.message || error || "").toLowerCase();
+  if (!msg) return [];
+  return REQUIRED_REMINDER_COLUMNS.filter((column) =>
+    msg.includes(`column renter_applications.${column} does not exist`) ||
+    msg.includes(`column "${column}" does not exist`));
 }
 
 export default async function handler(req, res) {
@@ -50,6 +63,11 @@ export default async function handler(req, res) {
     .limit(BATCH_LIMIT);
 
   if (error) {
+    const missingColumns = missingReminderColumns(error);
+    if (missingColumns.length) {
+      console.warn("checkr-invitation-reminder-cron skipped: schema missing required columns", { missingColumns });
+      return res.status(200).json({ skipped: true, reason: "schema_missing_columns", missingColumns });
+    }
     console.error("checkr-invitation-reminder-cron query failed:", error.message || error);
     return res.status(200).json({ skipped: true, reason: "query_failed" });
   }

@@ -20,12 +20,17 @@ const calls = {
   invitationNotifications: [],
   statusNotifications: [],
   fetches: [],
+  reminderSms: [],
+  reminderSkips: [],
 };
 
 let applicationByIdResult;
 let applicationByCandidateResult;
 let applicationByReportResult;
 let patchCheckrResult;
+let reminderSbClient;
+let reminderQueryResult;
+let reminderSmsResult;
 
 mock.module("./_renter-applications.js", {
   namedExports: {
@@ -65,6 +70,30 @@ mock.module("./_application-notifications.js", {
   },
 });
 
+mock.module("./_supabase.js", {
+  namedExports: {
+    getSupabaseAdmin: mock.fn(() => reminderSbClient),
+  },
+});
+
+mock.module("./_sms-dispatcher.js", {
+  namedExports: {
+    dispatchSms: mock.fn(async (...args) => {
+      calls.reminderSms.push(args);
+      return reminderSmsResult;
+    }),
+  },
+});
+
+mock.module("./_runtime-environment.js", {
+  namedExports: {
+    maybeSkipScheduledAutomation: mock.fn((...args) => {
+      calls.reminderSkips.push(args);
+      return false;
+    }),
+  },
+});
+
 global.fetch = mock.fn(async (url, init = {}) => {
   calls.fetches.push({ url: String(url), method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null });
   if (String(url).endsWith("/candidates")) {
@@ -91,6 +120,22 @@ const {
   verifyCheckrWebhookSignature,
 } = await import("./_checkr.js");
 const { default: checkrWebhookHandler } = await import("./checkr-webhook.js");
+const { default: checkrInvitationReminderCronHandler } = await import("./checkr-invitation-reminder-cron.js");
+
+function makeReminderSbClient(result) {
+  const chain = {
+    select: mock.fn(() => chain),
+    in: mock.fn(() => chain),
+    not: mock.fn(() => chain),
+    is: mock.fn(() => chain),
+    lte: mock.fn(() => chain),
+    order: mock.fn(() => chain),
+    limit: mock.fn(async () => result),
+  };
+  return {
+    from: mock.fn(() => chain),
+  };
+}
 
 function signPayload(payload) {
   return crypto.createHmac("sha256", process.env.CHECKR_WEBHOOK_SECRET).update(payload).digest("hex");
@@ -128,6 +173,8 @@ beforeEach(() => {
   calls.invitationNotifications.length = 0;
   calls.statusNotifications.length = 0;
   calls.fetches.length = 0;
+  calls.reminderSms.length = 0;
+  calls.reminderSkips.length = 0;
   process.env.CHECKR_WEBHOOK_SECRET = "checkr_webhook_secret";
   delete process.env.CHECKR_WEBHOOK_SIGNING_SECRET;
   delete process.env.CHECKR_SIGNING_SECRET;
@@ -156,6 +203,9 @@ beforeEach(() => {
   };
   applicationByReportResult = { ok: false, status: 404, error: "Application not found." };
   patchCheckrResult = { ok: true, data: { id: "app_1", checkr_report_status: "pending" } };
+  reminderQueryResult = { data: [], error: null };
+  reminderSbClient = null;
+  reminderSmsResult = { sent: true };
 });
 
 test("mapCheckrReportStatus maps adjudication and lifecycle states", () => {
@@ -278,4 +328,20 @@ test("extractCheckrEventType supports nested data.event_type payload shape", () 
     }),
     "report.completed",
   );
+});
+
+test("checkr-invitation-reminder-cron skips cleanly when required schema columns are missing", async () => {
+  reminderQueryResult = {
+    data: null,
+    error: { message: "column renter_applications.checkr_invitation_url does not exist" },
+  };
+  reminderSbClient = makeReminderSbClient(reminderQueryResult);
+  const req = { method: "GET", headers: {} };
+  const res = makeRes();
+  await checkrInvitationReminderCronHandler(req, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body?.skipped, true);
+  assert.equal(res._body?.reason, "schema_missing_columns");
+  assert.deepEqual(res._body?.missingColumns, ["checkr_invitation_url"]);
+  assert.equal(calls.reminderSms.length, 0);
 });
