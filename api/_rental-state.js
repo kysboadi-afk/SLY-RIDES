@@ -73,12 +73,18 @@ export async function getRentalState(sb, bookingRef) {
     );
   }
 
-  // Authoritative end date: blocking-ranges view when available, else bookings.return_date.
-  const endDate = rangeRow?.end_date
+  const rangeEndDate = rangeRow?.end_date
     ? String(rangeRow.end_date).split("T")[0]
-    : bk?.return_date
+    : "";
+  const bookingEndDate = bk?.return_date
     ? String(bk.return_date).split("T")[0]
     : "";
+
+  // Use the furthest known end date so reminders never fire from a stale earlier
+  // schedule when one source lags the other after date edits/extensions.
+  const endDate = rangeEndDate && bookingEndDate
+    ? (bookingEndDate > rangeEndDate ? bookingEndDate : rangeEndDate)
+    : (rangeEndDate || bookingEndDate);
 
   // Return time: bookings.return_time → pickup_time → DEFAULT_RETURN_TIME.
   // Trim to HH:MM in case Postgres returns "HH:MM:SS".
