@@ -141,6 +141,26 @@ mock.module("./_supabase.js", {
   },
 });
 
+let testRentalStateResolver = null;
+let rentalStateCallCount = 0;
+mock.module("./_rental-state.js", {
+  namedExports: {
+    getRentalState: async (_sb, bookingRef) => {
+      rentalStateCallCount += 1;
+      if (typeof testRentalStateResolver === "function") {
+        return testRentalStateResolver({ bookingRef, call: rentalStateCallCount });
+      }
+      return {
+        endDate: "",
+        returnTime: "10:00",
+        end_datetime: new Date(NaN),
+        minutesToReturn: null,
+        isActive: false,
+      };
+    },
+  },
+});
+
 // GitHub API stubs (for booked-dates and fleet-status reads/writes)
 global.fetch = async (url, opts) => {
   try {
@@ -181,6 +201,8 @@ function reset() {
   retryApplies.length    = 0;
   smsCalls.length        = 0;
   testSbClient           = null;  // restore null Supabase between tests
+  testRentalStateResolver = null;
+  rentalStateCallCount = 0;
 }
 
 /** Returns a Date that is `hoursAgo` hours before `now`. */
@@ -721,6 +743,44 @@ test("processActiveRentals: sends 30-min warning before return", async () => {
 
   assert.equal(sentMarks.some((m) => m.key === "late_warning_30min"), true,
     "30-min warning should fire when minutesUntilReturn is between 15 and 30");
+});
+
+test("processActiveRentals: skips stale return SMS when schedule changes mid-run", async () => {
+  reset();
+  const now = new Date("2026-06-15T07:40:00-07:00");
+  const allBookings = {
+    camry: [makeBooking({ returnDate: "2026-06-15", returnTime: "8:00 AM" })],
+  };
+  const sentMarks = [];
+
+  testSbClient = makeSbWithStatus("active_rental");
+  testRentalStateResolver = ({ call }) => {
+    if (call === 1) {
+      return {
+        endDate: "2026-06-15",
+        returnTime: "08:00",
+        end_datetime: new Date("2026-06-15T08:00:00-07:00"),
+        minutesToReturn: 20,
+        isActive: true,
+      };
+    }
+    return {
+      endDate: "2026-06-16",
+      returnTime: "08:00",
+      end_datetime: new Date("2026-06-16T08:00:00-07:00"),
+      minutesToReturn: 1460,
+      isActive: true,
+    };
+  };
+
+  await processActiveRentals(allBookings, now, sentMarks);
+
+  assert.equal(
+    sentMarks.some((m) => m.key === "late_warning_30min"),
+    false,
+    "stale 30-min return warning should be skipped after admin date change"
+  );
+  assert.equal(smsCalls.length, 0, "no stale return-time SMS should be sent");
 });
 
 test("processActiveRentals: does NOT send 30-min warning outside window", async () => {

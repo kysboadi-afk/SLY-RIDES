@@ -1298,6 +1298,36 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
       // whether any SMS was sent and mark the phone as contacted.
       const marksBeforeBooking = sentMarks.length;
 
+      // Final just-in-time guard: re-check the live return schedule before any
+      // return-time SMS send so admin edits made moments earlier are respected.
+      const isScheduleStillCurrent = async (templateKey) => {
+        if (!sb) return true;
+        try {
+          const latestState = await getRentalState(sb, id);
+          if (isNaN(latestState.end_datetime?.getTime?.())) return true;
+          const latestDate = String(latestState.endDate || "").trim();
+          const latestTime = String(latestState.returnTime || "").trim();
+          const expectedDate = String(finalDate || "").trim();
+          const expectedTime = String(resolvedFinalTime || "").trim();
+          if (
+            latestDate !== expectedDate ||
+            (latestTime && expectedTime && latestTime !== expectedTime)
+          ) {
+            console.log(
+              `[SMS_SKIP] ${id} ${templateKey}: schedule changed during run ` +
+              `(expected ${expectedDate} ${expectedTime || ""}, latest ${latestDate} ${latestTime || ""})`
+            );
+            return false;
+          }
+        } catch (scheduleErr) {
+          console.warn(
+            `[SMS_GUARD] ${id} ${templateKey}: live schedule check failed (non-fatal):`,
+            scheduleErr.message
+          );
+        }
+        return true;
+      };
+
       // `sentThisBooking` is set to true the moment any SMS fires for this
       // booking.  All lower-priority trigger blocks check it first so that at
       // most ONE message is sent per booking per cron tick.  Triggers are
@@ -1386,6 +1416,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
           }
 
           if (bookingStillActive) {
+            if (!(await isScheduleStillCurrent("late_fee_pending"))) continue;
             const vehicleEscalatedLateFee = SHORT_LATE_FEE;
             logSmsTrigger(id, returnIso, nowIso, "late_escalation");
             console.log("[LATE_ESCALATION]", {
@@ -1420,6 +1451,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
         !alreadySent(booking, "late_grace_expired") &&
         !(await isSmsLogged(id, "late_grace_expired", returnDateStr))
       ) {
+        if (!(await isScheduleStillCurrent("late_grace_expired"))) continue;
         logSmsTrigger(id, returnIso, nowIso, "grace_started");
         // message_type is "late_grace_started" for delivery logging; dedup key is
         // "late_grace_expired" for backward compatibility with existing sms_logs rows.
@@ -1440,6 +1472,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
         !alreadySent(booking, "late_at_return") &&
         !(await isSmsLogged(id, "late_at_return", returnDateStr))
       ) {
+        if (!(await isScheduleStillCurrent("late_at_return"))) continue;
         logSmsTrigger(id, returnIso, nowIso, "ended");
         const sent = await safeSend(booking.phone, render(LATE_AT_RETURN_TIME, v), { booking_ref: id, vehicle_id: vehicleId, message_type: "late_at_return" });
         if (sent) {
@@ -1460,6 +1493,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
         !alreadySent(booking, "late_warning_30min") &&
         !(await isSmsLogged(id, "late_warning_30min", returnDateStr))
       ) {
+        if (!(await isScheduleStillCurrent("late_warning_30min"))) continue;
         logSmsTrigger(id, returnIso, nowIso, "warning_30min");
         const sent = await safeSend(booking.phone, render(LATE_WARNING_30MIN, v), { booking_ref: id, vehicle_id: vehicleId, message_type: "late_warning_30min" });
         if (sent) {
@@ -1501,6 +1535,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
           if (score <= effectiveThreshold) {
             console.log(`[SMS_SKIP] ${id} active_rental_1h_before_end: score ${score} ≤ ${effectiveThreshold}`);
           } else {
+            if (!(await isScheduleStillCurrent("active_rental_1h_before_end"))) continue;
             logSmsTrigger(id, returnIso, nowIso, "ext_reminder_1h");
             const sent = await safeSend(booking.phone, render(ACTIVE_RENTAL_1H_BEFORE_END, v), { booking_ref: id, vehicle_id: vehicleId, message_type: "active_rental_1h_before_end" });
             if (sent) {
@@ -1544,6 +1579,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
         if (score <= effectiveThreshold) {
           console.log(`[SMS_SKIP] ${id} active_rental_mid: score ${score} ≤ ${effectiveThreshold}`);
         } else {
+          if (!(await isScheduleStillCurrent("active_rental_mid"))) continue;
           logSmsTrigger(id, returnIso, nowIso, "same_day_reminder");
           const sent = await safeSend(booking.phone, render(ACTIVE_RENTAL_MID, v), { booking_ref: id, vehicle_id: vehicleId, message_type: "active_rental_mid" });
           if (sent) {
@@ -1585,6 +1621,7 @@ export async function processActiveRentals(allBookings, now, sentMarks, critical
         if (score <= effectiveThreshold) {
           console.log(`[SMS_SKIP] ${id} return_expectations: score ${score} ≤ ${effectiveThreshold}`);
         } else {
+          if (!(await isScheduleStillCurrent("return_expectations"))) continue;
           logSmsTrigger(id, returnIso, nowIso, "return_expectations");
           const sent = await safeSend(booking.phone, render(RETURN_EXPECTATIONS, v), { booking_ref: id, vehicle_id: vehicleId, message_type: "return_expectations" });
           if (sent) {
