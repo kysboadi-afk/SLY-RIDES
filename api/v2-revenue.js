@@ -35,6 +35,18 @@ function getSupabase() {
   return getSupabaseAdmin();
 }
 
+const DEFAULT_REVENUE_PAYMENT_STATUSES = ["paid", "partial"];
+
+function resolveRevenuePaymentStatuses(value) {
+  const requested = String(value || "").trim().toLowerCase();
+  return requested ? [requested] : [...DEFAULT_REVENUE_PAYMENT_STATUSES];
+}
+
+function matchesRevenuePaymentStatus(record, statuses) {
+  const paymentStatus = String(record?.payment_status || "").trim().toLowerCase();
+  return statuses.includes(paymentStatus);
+}
+
 // ── GitHub fallback helpers ───────────────────────────────────────────────────
 
 function ghHeaders() {
@@ -93,7 +105,7 @@ export default withAdminAuth(async function handler(req, res) {
   try {
     // ── LIST ────────────────────────────────────────────────────────────────
     if (!action || action === "list") {
-      const effectivePaymentStatus = String(body.status || "paid").trim();
+      const effectivePaymentStatuses = resolveRevenuePaymentStatuses(body.status);
       // When a scope filter is requested, resolve the matching vehicle IDs first.
       // scope='car' → car-type vehicles only.
       let scopedVehicleIds = null;
@@ -120,7 +132,9 @@ export default withAdminAuth(async function handler(req, res) {
         try {
           let q = sb.from("revenue_records_effective").select("*").eq("is_orphan", false).order("created_at", { ascending: false });
           if (body.vehicleId)  q = q.in("vehicle_id",    vehicleIdFamily(body.vehicleId));
-          q = q.eq("payment_status", effectivePaymentStatus);
+          q = effectivePaymentStatuses.length === 1
+            ? q.eq("payment_status", effectivePaymentStatuses[0])
+            : q.in("payment_status", effectivePaymentStatuses);
           if (body.startDate)  q = q.gte("pickup_date",   body.startDate);
           if (body.endDate)    q = q.lte("return_date",   body.endDate);
           if (body.limit)      q = q.limit(Number(body.limit));
@@ -147,7 +161,7 @@ export default withAdminAuth(async function handler(req, res) {
       const { data: ghRecords } = await loadRecordsFromGitHub();
       let records = ghRecords.filter((r) => !r.sync_excluded && !r.is_orphan);
       if (body.vehicleId)  records = records.filter((r) => vehicleIdFamily(body.vehicleId).includes(r.vehicle_id));
-      records = records.filter((r) => String(r.payment_status || "").trim() === effectivePaymentStatus);
+      records = records.filter((r) => matchesRevenuePaymentStatus(r, effectivePaymentStatuses));
       if (body.startDate)  records = records.filter((r) => r.pickup_date   >= body.startDate);
       if (body.endDate)    records = records.filter((r) => r.return_date   <= body.endDate);
       if (scopedVehicleIds) records = records.filter((r) => scopedVehicleIds.includes(r.vehicle_id));
@@ -375,7 +389,7 @@ export default withAdminAuth(async function handler(req, res) {
           const { data: recs, error: recsErr } = await sb
             .from("revenue_records_effective")
             .select("vehicle_id, gross_amount, stripe_fee, stripe_net, refund_amount, deposit_amount, is_cancelled, is_no_show")
-            .eq("payment_status", "paid");
+            .in("payment_status", DEFAULT_REVENUE_PAYMENT_STATUSES);
           if (!recsErr) {
             const result = aggregateRecords(recs);
             // Override booking_count with counts from the bookings table (source of truth).
@@ -416,7 +430,9 @@ export default withAdminAuth(async function handler(req, res) {
       }
       // GitHub fallback
       const { data: ghRecords } = await loadRecordsFromGitHub();
-      return res.status(200).json(aggregateRecords(ghRecords.filter((r) => !r.sync_excluded && r.payment_status === "paid")));
+      return res.status(200).json(
+        aggregateRecords(ghRecords.filter((r) => !r.sync_excluded && matchesRevenuePaymentStatus(r, DEFAULT_REVENUE_PAYMENT_STATUSES)))
+      );
     }
 
     // ── RECORD EXTENSION FEE ────────────────────────────────────────────────
@@ -515,54 +531,22 @@ export default withAdminAuth(async function handler(req, res) {
 
       if (sb) {
         try {
+          let q = sb
+            .from("revenue_records_effective")
+            .select("gross_amount, is_cancelled, is_no_show, is_orphan")
+            .in("payment_status", DEFAULT_REVENUE_PAYMENT_STATUSES);
           if (kpiScopedVehicleIds && kpiScopedVehicleIds.length > 0) {
-            // Scoped KPI: query canonical row-level view with vehicle filter.
-            const { data, error } = await sb
-              .from("revenue_reporting_canonical")
-              .select("gross_amount")
-              .in("vehicle_id", kpiScopedVehicleIds);
-            if (!error) {
-              const total = (data || []).reduce((s, r) => s + Number(r.gross_amount || 0), 0);
-              if (total > 0) return res.status(200).json({ total_revenue: Math.round(total * 100) / 100 });
-              // total === 0: all paid records may be orphans — fall through to orphan fallback
-            }
-            if (error && !isSchemaError(error)) console.error("v2-revenue kpi (scoped) error:", error.message);
-            // Orphan fallback: revenue_records_effective includes is_orphan=true records
-            const { data: rreData, error: rreErr } = await sb
-              .from("revenue_records_effective")
-              .select("gross_amount, is_cancelled, is_no_show")
-              .eq("payment_status", "paid")
-              .in("vehicle_id", kpiScopedVehicleIds);
-            if (!rreErr) {
-              const total2 = (rreData || [])
-                .filter((r) => !r.is_cancelled && !r.is_no_show)
-                .reduce((s, r) => s + Number(r.gross_amount || 0), 0);
-              return res.status(200).json({ total_revenue: Math.round(total2 * 100) / 100 });
-            }
-          } else {
-            // No scope — use the pre-aggregated view for efficiency.
-            const { data, error } = await sb
-              .from("total_revenue_kpi_canonical")
-              .select("total_revenue")
-              .single();
-            if (!error) {
-              const kpiVal = Number(data?.total_revenue ?? 0);
-              if (kpiVal > 0) return res.status(200).json({ total_revenue: kpiVal });
-              // kpiVal === 0: all paid records may be orphans — fall through to orphan fallback
-            }
-            if (error && !isSchemaError(error)) console.error("v2-revenue kpi error:", error.message);
-            // Orphan fallback
-            const { data: rreData, error: rreErr } = await sb
-              .from("revenue_records_effective")
-              .select("gross_amount, is_cancelled, is_no_show")
-              .eq("payment_status", "paid");
-            if (!rreErr) {
-              const total2 = (rreData || [])
-                .filter((r) => !r.is_cancelled && !r.is_no_show)
-                .reduce((s, r) => s + Number(r.gross_amount || 0), 0);
-              return res.status(200).json({ total_revenue: Math.round(total2 * 100) / 100 });
-            }
+            q = q.in("vehicle_id", kpiScopedVehicleIds);
           }
+          const { data: rreData, error: rreErr } = await q;
+          if (!rreErr) {
+            const total = (rreData || [])
+              .filter((r) => !r.is_orphan)
+              .filter((r) => !r.is_cancelled && !r.is_no_show)
+              .reduce((s, r) => s + Number(r.gross_amount || 0), 0);
+            return res.status(200).json({ total_revenue: Math.round(total * 100) / 100 });
+          }
+          if (!isSchemaError(rreErr)) console.error("v2-revenue kpi error:", rreErr.message);
         } catch (kpiErr) {
           console.error("v2-revenue kpi error:", kpiErr);
         }
@@ -571,7 +555,7 @@ export default withAdminAuth(async function handler(req, res) {
       const { data: ghRecords } = await loadRecordsFromGitHub();
       const kpiScopedSet = kpiScopedVehicleIds ? new Set(kpiScopedVehicleIds) : null;
       const total = ghRecords
-        .filter((r) => r.payment_status === "paid")
+        .filter((r) => matchesRevenuePaymentStatus(r, DEFAULT_REVENUE_PAYMENT_STATUSES))
         .filter((r) => !r.sync_excluded)
         .filter((r) => !r.is_orphan)
         .filter((r) => !r.is_cancelled)
@@ -590,7 +574,8 @@ export default withAdminAuth(async function handler(req, res) {
     // does the grouping in SQL).  Falls back to loading all rows and grouping
     // in JavaScript when the view is unavailable (schema migration not yet run).
     if (action === "list_by_booking") {
-      const isPaidRevenue = (record) => String(record?.payment_status || "").trim().toLowerCase() === "paid";
+      const acceptedPaymentStatuses = resolveRevenuePaymentStatuses(body.status);
+      const isIncludedRevenue = (record) => matchesRevenuePaymentStatus(record, acceptedPaymentStatuses);
       // Resolve scope → vehicle IDs (same logic as the list action).
       let scopedVehicleIds = null;
       if (body.scope) {
@@ -608,61 +593,6 @@ export default withAdminAuth(async function handler(req, res) {
             .filter(Boolean);
         } catch (scopeErr) {
           console.warn("v2-revenue list_by_booking: scope vehicle lookup failed (non-fatal):", scopeErr.message);
-        }
-      }
-
-      // ── Try booking_revenue_grouped view ────────────────────────────────
-      if (sb) {
-        try {
-          let q = sb
-            .from("booking_revenue_grouped")
-            .select("*")
-            .order("min_pickup_date", { ascending: false });
-          if (body.vehicleId) q = q.in("vehicle_id", vehicleIdFamily(body.vehicleId));
-          if (scopedVehicleIds && scopedVehicleIds.length > 0) q = q.in("vehicle_id", scopedVehicleIds);
-          const { data, error } = await q;
-          if (!error) {
-            let groups = (data || []).map((g) => ({
-              booking_id:      g.booking_group_id,
-              vehicle_id:      g.vehicle_id     || null,
-              customer_name:   g.customer_name  || null,
-              customer_phone:  g.customer_phone || null,
-              customer_email:  g.customer_email || null,
-              min_pickup_date: g.min_pickup_date || null,
-              max_return_date: g.max_return_date || null,
-              total_gross:     Number(g.gross_total || 0),
-              record_count:    Number(g.record_count || 0),
-              records:         (g.records || []).filter(Boolean).filter(isPaidRevenue),
-            }))
-              .filter((g) => g.records.length > 0)
-              .map((g) => {
-                const records = g.records;
-                const pickupDates = records.map((r) => r.pickup_date || null).filter(Boolean).sort();
-                const returnDates = records.map((r) => r.return_date || null).filter(Boolean).sort();
-                const totalGross = Math.round(
-                  records
-                    .filter((r) => !r.is_cancelled && !r.is_no_show)
-                    .reduce((sum, r) => sum + Number(r.gross_amount || 0), 0) * 100
-                ) / 100;
-                return {
-                  ...g,
-                  min_pickup_date: pickupDates[0] || null,
-                  max_return_date: returnDates[returnDates.length - 1] || null,
-                  total_gross: totalGross,
-                  record_count: records.length,
-                };
-              });
-            // Groups with a null start or end date are included intentionally —
-            // they represent bookings missing date info and are still valid revenue.
-            if (body.startDate) groups = groups.filter((g) => !g.max_return_date || g.max_return_date >= body.startDate);
-            if (body.endDate)   groups = groups.filter((g) => !g.min_pickup_date || g.min_pickup_date <= body.endDate);
-            if (body.limit)     groups.splice(Number(body.limit));
-            return res.status(200).json({ groups });
-          }
-          // Schema error means the view doesn't exist yet — fall through to JS grouping.
-          if (!isSchemaError(error)) console.error("v2-revenue list_by_booking view error:", error.message);
-        } catch (viewErr) {
-          console.warn("v2-revenue list_by_booking: view unavailable, falling back to JS grouping:", viewErr.message);
         }
       }
 
@@ -692,7 +622,7 @@ export default withAdminAuth(async function handler(req, res) {
         if (scopedVehicleIds) allRows = allRows.filter((r) => scopedVehicleIds.includes(r.vehicle_id));
         if (body.vehicleId) allRows = allRows.filter((r) => vehicleIdFamily(body.vehicleId).includes(r.vehicle_id));
       }
-      allRows = allRows.filter(isPaidRevenue);
+      allRows = allRows.filter(isIncludedRevenue);
 
       // Aggregate: group by effective_booking_id, MIN(pickup_date), MAX(return_date), SUM.
       // Use booking_id as the primary group key (canonical booking_ref after migration 0084).

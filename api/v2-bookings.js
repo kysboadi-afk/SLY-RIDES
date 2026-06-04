@@ -91,6 +91,63 @@ function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+const OFFLINE_PAYMENT_METHODS = new Set(["cash", "manual", "zelle", "venmo", "external", "offline"]);
+const SUPPLEMENTAL_REVENUE_TYPES = new Set(["rental_balance", "partial_balance", "reservation_deposit"]);
+
+function derivePaymentStatusFromAmounts(amountPaid, totalPrice) {
+  const paid = roundMoney(amountPaid || 0);
+  const total = roundMoney(totalPrice || 0);
+  if (paid <= 0) return "unpaid";
+  if (total > 0 && paid < total) return "partial";
+  return "paid";
+}
+
+function isOfflineRevenueBooking(booking = {}) {
+  const paymentMethod = String(booking.paymentMethod || "").trim().toLowerCase();
+  const paymentIntentId = String(booking.paymentIntentId || "").trim().toLowerCase();
+  return OFFLINE_PAYMENT_METHODS.has(paymentMethod) || paymentIntentId.startsWith("manual_");
+}
+
+async function syncOfflineRevenueRecord(sb, booking = {}) {
+  const bookingId = String(booking.bookingId || "").trim();
+  if (!sb || !bookingId || !isOfflineRevenueBooking(booking)) return;
+
+  const { data: rows, error: lookupErr } = await sb
+    .from("revenue_records")
+    .select("id, type")
+    .eq("booking_id", bookingId);
+  if (lookupErr) {
+    throw new Error(`revenue lookup failed: ${lookupErr.message}`);
+  }
+
+  const rentalRow = (rows || []).find((row) => String(row?.type || "rental").trim().toLowerCase() === "rental");
+  if (!rentalRow?.id) return;
+
+  const hasSupplementalPaymentRows = (rows || []).some((row) =>
+    SUPPLEMENTAL_REVENUE_TYPES.has(String(row?.type || "").trim().toLowerCase())
+  );
+  if (hasSupplementalPaymentRows) return;
+
+  const grossAmount = roundMoney(booking.amountPaid || 0);
+  const totalPrice = roundMoney(booking.totalPrice || grossAmount);
+  const paymentStatus = String(
+    booking.paymentStatus || derivePaymentStatusFromAmounts(grossAmount, totalPrice)
+  ).trim().toLowerCase() || derivePaymentStatusFromAmounts(grossAmount, totalPrice);
+
+  const { error: updateErr } = await sb
+    .from("revenue_records")
+    .update({
+      gross_amount: grossAmount,
+      payment_status: paymentStatus,
+      payment_method: booking.paymentMethod || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", rentalRow.id);
+  if (updateErr) {
+    throw new Error(`revenue update failed: ${updateErr.message}`);
+  }
+}
+
 function resolveBookingRemainingBalance(row = {}, fallback = 0) {
   const totalPrice = Number(row.total_price || 0);
   const depositPaid = Number(row.deposit_paid || 0);
@@ -872,6 +929,30 @@ export default withAdminAuth(async function handler(req, res) {
         }
       }
       safeUpdates.updatedAt = new Date().toISOString();
+      const currentBookingSnapshot = sbOnlyRow || (checkData[vehicleId] || []).find(
+        (b) => b.bookingId === bookingId || b.paymentIntentId === bookingId
+      ) || null;
+      const currentAmountPaid = roundMoney(
+        sbOnlyRow
+          ? Number(sbOnlyRow.deposit_paid || 0)
+          : Number(currentBookingSnapshot?.amountPaid || 0)
+      );
+      const currentTotalPrice = roundMoney(
+        sbOnlyRow
+          ? Number(sbOnlyRow.total_price || 0)
+          : Number(currentBookingSnapshot?.totalPrice || currentAmountPaid)
+      );
+      if (safeUpdates.amountPaid !== undefined || safeUpdates.totalPrice !== undefined) {
+        const nextAmountPaid = roundMoney(
+          safeUpdates.amountPaid !== undefined ? Number(safeUpdates.amountPaid || 0) : currentAmountPaid
+        );
+        const nextTotalPrice = roundMoney(
+          safeUpdates.totalPrice !== undefined ? Number(safeUpdates.totalPrice || 0) : currentTotalPrice
+        );
+        if (safeUpdates.paymentStatus === undefined) {
+          safeUpdates.paymentStatus = derivePaymentStatusFromAmounts(nextAmountPaid, nextTotalPrice);
+        }
+      }
       // Auto-stamp activatedAt when an admin marks the vehicle as picked up
       if (safeUpdates.status === "active_rental" && !safeUpdates.activatedAt) {
         safeUpdates.activatedAt = safeUpdates.updatedAt;
@@ -946,13 +1027,22 @@ export default withAdminAuth(async function handler(req, res) {
       const hasPickupUpdate  = safeUpdates.pickupDate !== undefined || safeUpdates.pickupTime !== undefined;
       const hasPaymentStatusUpdate = safeUpdates.paymentStatus !== undefined;
       const hasPaymentMethodUpdate = safeUpdates.paymentMethod !== undefined;
+      const hasAmountPaidUpdate = safeUpdates.amountPaid !== undefined;
+      const hasTotalPriceUpdate = safeUpdates.totalPrice !== undefined;
       const hasNotesUpdate = safeUpdates.notes !== undefined;
       const hasVehicleUpdate = safeUpdates.vehicleId !== undefined;
       const hasDateScheduleUpdate = safeUpdates.pickupDate !== undefined || safeUpdates.pickupTime !== undefined || safeUpdates.returnDate !== undefined || safeUpdates.returnTime !== undefined;
-      if (sbInstance && (safeUpdates.status || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasNotesUpdate || hasVehicleUpdate)) {
+      if (sbInstance && (safeUpdates.status || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasAmountPaidUpdate || hasTotalPriceUpdate || hasNotesUpdate || hasVehicleUpdate)) {
         const dbStatus = safeUpdates.status ? APP_TO_DB_STATUS[safeUpdates.status] : null;
-        if (dbStatus || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasNotesUpdate || hasVehicleUpdate) {
+        if (dbStatus || hasReturnUpdate || hasContactUpdate || hasPickupUpdate || hasPaymentStatusUpdate || hasPaymentMethodUpdate || hasAmountPaidUpdate || hasTotalPriceUpdate || hasNotesUpdate || hasVehicleUpdate) {
           try {
+            const nextAmountPaid = roundMoney(
+              hasAmountPaidUpdate ? Number(safeUpdates.amountPaid || 0) : currentAmountPaid
+            );
+            const nextTotalPrice = roundMoney(
+              hasTotalPriceUpdate ? Number(safeUpdates.totalPrice || 0) : currentTotalPrice
+            );
+            const nextRemainingBalance = roundMoney(Math.max(0, nextTotalPrice - nextAmountPaid));
             const sbPayload = {
               ...(dbStatus ? { status: dbStatus } : {}),
               updated_at: safeUpdates.updatedAt,
@@ -967,6 +1057,9 @@ export default withAdminAuth(async function handler(req, res) {
               ...(safeUpdates.customerEmail !== undefined ? { customer_email: safeUpdates.customerEmail } : {}),
               ...(safeUpdates.pickupDate !== undefined ? { pickup_date: safeUpdates.pickupDate } : {}),
               ...(safeUpdates.pickupTime !== undefined ? { pickup_time: parseTime12h(safeUpdates.pickupTime) } : {}),
+              ...(hasAmountPaidUpdate ? { deposit_paid: nextAmountPaid } : {}),
+              ...(hasTotalPriceUpdate ? { total_price: nextTotalPrice } : {}),
+              ...((hasAmountPaidUpdate || hasTotalPriceUpdate) ? { remaining_balance: nextRemainingBalance } : {}),
               ...(safeUpdates.paymentStatus !== undefined ? { payment_status: safeUpdates.paymentStatus } : {}),
               ...(safeUpdates.paymentMethod !== undefined ? { payment_method: safeUpdates.paymentMethod } : {}),
               ...(safeUpdates.vehicleId !== undefined ? { vehicle_id: safeUpdates.vehicleId } : {}),
@@ -1419,6 +1512,17 @@ export default withAdminAuth(async function handler(req, res) {
           await blockBookedDates(updatedBooking.vehicleId, updatedBooking.pickupDate, updatedBooking.returnDate).catch((err) => {
             console.warn("v2-bookings: blockBookedDates on returnDate update failed (non-fatal):", err.message);
           });
+        }
+      }
+      if (
+        updatedBooking &&
+        sbInstance &&
+        (safeUpdates.amountPaid !== undefined || safeUpdates.totalPrice !== undefined || safeUpdates.paymentStatus !== undefined || safeUpdates.paymentMethod !== undefined)
+      ) {
+        try {
+          await syncOfflineRevenueRecord(sbInstance, updatedBooking);
+        } catch (revenueSyncErr) {
+          console.error("v2-bookings: revenue payment sync failed (non-fatal):", revenueSyncErr.message);
         }
       }
       // "cancelled_rental" intentionally skips revenue creation and stat updates

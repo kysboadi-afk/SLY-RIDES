@@ -47,6 +47,7 @@ mock.module("./_supabase.js", {
           select()  { return this; },
           order()   { return this; },
           eq()      { return this; },
+          in()      { return this; },
           gte()     { return this; },
           lte()     { return this; },
           limit(n)  { this._data = (this._data || []).slice(0, n); return this; },
@@ -227,34 +228,36 @@ test("list: returns GitHub records when Supabase is empty but GitHub file exists
   assert.equal(res._body.records[0].id, "gh-1");
 });
 
-test("list: defaults to showing only paid records", async () => {
+test("list: defaults to showing paid and partial records", async () => {
   resetState();
   supabaseRecords = null; // force GitHub fallback filtering path
   ghSha = "sha-existing";
   ghRecords = [
     { id: "gh-paid-1", booking_id: "bk-gh-1", vehicle_id: "camry", gross_amount: 100, payment_status: "paid", created_at: "2026-03-01T00:00:00.000Z" },
+    { id: "gh-partial-1", booking_id: "bk-gh-3", vehicle_id: "camry", gross_amount: 60, payment_status: "partial", created_at: "2026-03-03T00:00:00.000Z" },
     { id: "gh-unpaid-1", booking_id: "bk-gh-2", vehicle_id: "camry", gross_amount: 80, payment_status: "unpaid", created_at: "2026-03-02T00:00:00.000Z" },
   ];
 
   const res = makeRes();
   await handler(makeReq({ secret: "test-admin-secret", action: "list" }), res);
   assert.equal(res._status, 200);
-  assert.deepEqual((res._body.records || []).map((r) => r.id), ["gh-paid-1"]);
+  assert.deepEqual((res._body.records || []).map((r) => r.id), ["gh-partial-1", "gh-paid-1"]);
 });
 
-test("list_by_booking: excludes non-paid records from grouped results", async () => {
+test("list_by_booking: includes partial records and excludes unpaid records", async () => {
   resetState();
   supabaseRecords = null; // force GitHub fallback grouping path
   ghSha = "sha-existing";
   ghRecords = [
     { id: "gh-paid-base", booking_id: "bk-group-1", vehicle_id: "camry", gross_amount: 100, payment_status: "paid", pickup_date: "2026-05-01", return_date: "2026-05-03", created_at: "2026-05-01T00:00:00.000Z" },
+    { id: "gh-partial-base", booking_id: "bk-group-3", vehicle_id: "camry", gross_amount: 40, payment_status: "partial", pickup_date: "2026-05-04", return_date: "2026-05-06", created_at: "2026-05-04T00:00:00.000Z" },
     { id: "gh-unpaid-base", booking_id: "bk-group-2", vehicle_id: "camry", gross_amount: 120, payment_status: "unpaid", pickup_date: "2026-05-05", return_date: "2026-05-07", created_at: "2026-05-05T00:00:00.000Z" },
   ];
 
   const res = makeRes();
   await handler(makeReq({ secret: "test-admin-secret", action: "list_by_booking" }), res);
   assert.equal(res._status, 200);
-  assert.deepEqual((res._body.groups || []).map((g) => g.booking_id), ["bk-group-1"]);
+  assert.deepEqual((res._body.groups || []).map((g) => g.booking_id), ["bk-group-3", "bk-group-1"]);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -481,6 +484,7 @@ test("kpi: sums gross_amount only for canonical-included records from GitHub fal
   ghRecords = [
     { id: "r1", booking_id: "bk-1", gross_amount: 300, payment_status: "paid", is_cancelled: false, is_no_show: false, is_orphan: false, sync_excluded: false },
     { id: "r2", booking_id: "bk-2", gross_amount: 150, payment_status: "paid", is_cancelled: false, is_no_show: false, is_orphan: false, sync_excluded: false },
+    { id: "r2b", booking_id: "bk-2b", gross_amount: 25, payment_status: "partial", is_cancelled: false, is_no_show: false, is_orphan: false, sync_excluded: false },
     { id: "r3", booking_id: "bk-3", gross_amount: 200, payment_status: "paid", is_cancelled: true,  is_no_show: false, is_orphan: false, sync_excluded: false }, // excluded
     { id: "r4", booking_id: "bk-4", gross_amount: 50,  payment_status: "pending", is_cancelled: false, is_no_show: false, is_orphan: false, sync_excluded: false }, // excluded
     { id: "r5", booking_id: "bk-5", gross_amount: 25,  payment_status: "paid", is_cancelled: false, is_no_show: true,  is_orphan: false, sync_excluded: false }, // excluded
@@ -491,7 +495,7 @@ test("kpi: sums gross_amount only for canonical-included records from GitHub fal
   const res = makeRes();
   await handler(makeReq({ secret: "test-admin-secret", action: "kpi" }), res);
   assert.equal(res._status, 200);
-  assert.equal(res._body.total_revenue, 450, "should sum only canonical-included rows (300 + 150 = 450)");
+  assert.equal(res._body.total_revenue, 475, "should sum paid and partial canonical rows (300 + 150 + 25 = 475)");
 });
 
 test("kpi: excludes sync_excluded and orphan records under canonical rules", async () => {

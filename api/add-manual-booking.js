@@ -40,6 +40,18 @@ const VEHICLE_NAMES     = {
   camry2013:  "Camry 2013 SE",
 };
 
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function derivePaymentStatus(amountPaid, totalPrice) {
+  const paid = roundMoney(amountPaid || 0);
+  const total = roundMoney(totalPrice || 0);
+  if (paid <= 0) return "unpaid";
+  if (total > 0 && paid < total) return "partial";
+  return "paid";
+}
+
 /**
  * Block the date range in booked-dates.json so the calendar shows the
  * vehicle as unavailable for those dates.  Retries on 409 conflict.
@@ -69,7 +81,7 @@ export default async function handler(req, res) {
   const {
     secret, vehicleId, name, phone, email,
     pickupDate, pickupTime, returnDate, returnTime,
-    amountPaid, notes,
+    amountPaid, totalPrice, paymentStatus, notes,
   } = req.body || {};
 
   // Authentication
@@ -116,6 +128,16 @@ export default async function handler(req, res) {
 
     const now = new Date().toISOString();
 
+    const resolvedAmountPaid = typeof amountPaid === "number" && amountPaid > 0
+      ? roundMoney(amountPaid)
+      : 0;
+    const resolvedTotalPrice = typeof totalPrice === "number" && totalPrice > 0
+      ? roundMoney(totalPrice)
+      : resolvedAmountPaid;
+    const resolvedPaymentStatus = typeof paymentStatus === "string" && paymentStatus.trim()
+      ? paymentStatus.trim().toLowerCase()
+      : derivePaymentStatus(resolvedAmountPaid, resolvedTotalPrice);
+
     // 2. Persist booking through the unified pipeline (Supabase + bookings.json).
     //    Manual (cash) bookings are created directly as active_rental so they
     //    participate in the SMS automation, mileage tracking, and extension flows
@@ -134,11 +156,10 @@ export default async function handler(req, res) {
       location:        "",
       status:          "active_rental",
       activatedAt:     now,
-      paymentStatus:   "paid",
+      paymentStatus:   resolvedPaymentStatus,
       paymentIntentId: "manual_" + crypto.randomBytes(6).toString("hex"),
-      amountPaid:      typeof amountPaid === "number" && amountPaid > 0
-                         ? Math.round(amountPaid * 100) / 100
-                         : 0,
+      amountPaid:      resolvedAmountPaid,
+      totalPrice:      resolvedTotalPrice,
       notes:           typeof notes === "string" ? notes.trim().slice(0, 500) : "",
       paymentMethod:   "cash",
       source:          "admin_manual",

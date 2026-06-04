@@ -1157,6 +1157,91 @@ test("payment: update totalPrice alongside amountPaid syncs to Supabase", async 
   assert.equal(synced.amountPaid, 50);
 });
 
+test("payment: manual booking payment updates sync booking totals and revenue state", async () => {
+  resetStore(); resetCalls();
+  const created = makeRes();
+  await handler(makeReq(createPayload({
+    amountPaid: 50,
+    totalPrice: 200,
+    paymentMethod: "cash",
+  })), created);
+  const { bookingId } = created._body.booking;
+  resetCalls();
+
+  const bookingUpdates = [];
+  const revenueUpdates = [];
+  supabaseMockState.client = {
+    from(table) {
+      if (table === "bookings") {
+        return {
+          update(payload) {
+            return {
+              eq() {
+                return {
+                  select() {
+                    return {
+                      async maybeSingle() {
+                        bookingUpdates.push(payload);
+                        return { data: { id: "sb-booking-1" }, error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      if (table === "revenue_records") {
+        return {
+          select() {
+            return {
+              async eq() {
+                return { data: [{ id: "rev-1", type: "rental" }], error: null };
+              },
+            };
+          },
+          update(payload) {
+            return {
+              async eq() {
+                revenueUpdates.push(payload);
+                return { error: null };
+              },
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+
+  const updated = makeRes();
+  await handler(makeReq({
+    secret: "test-admin-secret",
+    action: "update",
+    vehicleId: "camry",
+    bookingId,
+    updates: { amountPaid: 125, totalPrice: 200 },
+  }), updated);
+
+  assert.equal(updated._status, 200);
+  assert.equal(updated._body.booking.amountPaid, 125);
+  assert.equal(updated._body.booking.paymentStatus, "partial");
+  assert.deepEqual(bookingUpdates[0], {
+    updated_at: bookingUpdates[0].updated_at,
+    deposit_paid: 125,
+    total_price: 200,
+    remaining_balance: 75,
+    payment_status: "partial",
+  });
+  assert.deepEqual(revenueUpdates[0], {
+    gross_amount: 125,
+    payment_status: "partial",
+    payment_method: "cash",
+    updated_at: revenueUpdates[0].updated_at,
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 10. UPDATE — validation
 // ═══════════════════════════════════════════════════════════════════════════════

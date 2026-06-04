@@ -7,11 +7,21 @@
 // POST /api/ledger-backfill  (admin secret required)
 //
 // Body:
-//   { secret, action: "preview"|"run", cursor_booking_ref?, limit?, run_id? }
+//   { secret, action: "preview"|"run", cursor_booking_ref?, limit?, run_id?,
+//     booking_ref?, renter_email? }
 //
 // action:
 //   preview – dry-run: returns what WOULD be written without writing anything
 //   run     – live writes; idempotent (safe to re-run with same run_id)
+//
+// Scoping (optional — omit both to process all bookings):
+//   booking_ref   – restrict backfill to a single booking (exact match on
+//                   booking_id across all three source tables).
+//   renter_email  – restrict backfill to all bookings belonging to one renter
+//                   (looks up matching booking_ids from the bookings table via
+//                   customer_email, then filters all three source tables to
+//                   those booking_ids).  Useful for backfilling a renter who
+//                   made partial or full payments before ledger wiring.
 //
 // Source replay order:
 //   1. revenue_records  WHERE payment_intent_id IS NOT NULL
@@ -30,6 +40,7 @@
 //
 // Resumable cursor: pass cursor_booking_ref to start processing after a given
 // booking_ref (alphabetical ordering).  Returns next_cursor for the next call.
+// cursor_booking_ref is ignored when booking_ref or renter_email is supplied.
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { addLedgerPayment } from "./_renter-balance-ledger.js";
@@ -49,7 +60,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
 
   const body = req.body || {};
-  const { secret, action = "preview", cursor_booking_ref, limit, run_id: inputRunId } = body;
+  const { secret, action = "preview", cursor_booking_ref, limit, run_id: inputRunId, booking_ref, renter_email } = body;
 
   if (!isAdminAuthorized(secret)) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -70,10 +81,36 @@ export default async function handler(req, res) {
   // Stable run_id — callers may supply one for idempotent resume behaviour.
   const runId = String(inputRunId || `backfill-${Date.now()}`).trim().slice(0, 80);
 
+  // ── Renter / booking scoping ─────────────────────────────────────────────────
+  // When booking_ref is supplied, restrict all source queries to that one booking.
+  // When renter_email is supplied, look up all booking_ids for that renter first.
+  let scopeBookingIds = null; // null = no restriction (process all)
+
+  if (booking_ref && typeof booking_ref === "string" && booking_ref.trim()) {
+    scopeBookingIds = [booking_ref.trim()];
+  } else if (renter_email && typeof renter_email === "string" && renter_email.trim()) {
+    const email = renter_email.trim().toLowerCase();
+    const { data: bkRows, error: bkErr } = await sb
+      .from("bookings")
+      .select("booking_ref")
+      .ilike("customer_email", email);
+
+    if (bkErr) {
+      return res.status(500).json({ error: `Could not look up renter bookings: ${bkErr.message}` });
+    }
+
+    if (!bkRows || bkRows.length === 0) {
+      return res.status(200).json({ ok: true, message: "No bookings found for renter_email", renter_email: email, written: 0, skipped: 0, errors: 0 });
+    }
+
+    scopeBookingIds = bkRows.map((r) => r.booking_ref).filter(Boolean);
+  }
+
   const stats = {
     run_id: runId,
     action,
     dry_run: isDryRun,
+    scope: scopeBookingIds ? { booking_ids: scopeBookingIds } : null,
     previewed: 0,
     written: 0,
     skipped: 0,
@@ -92,11 +129,15 @@ export default async function handler(req, res) {
       .from("revenue_records")
       .select("id, booking_id, payment_intent_id, gross_amount, created_at, type")
       .not("payment_intent_id", "is", null)
-      .order("booking_id", { ascending: true })
-      .limit(batchLimit);
+      .order("booking_id", { ascending: true });
 
-    if (cursor_booking_ref) {
-      rrQuery = rrQuery.gt("booking_id", cursor_booking_ref);
+    if (scopeBookingIds) {
+      rrQuery = rrQuery.in("booking_id", scopeBookingIds);
+    } else {
+      rrQuery = rrQuery.limit(batchLimit);
+      if (cursor_booking_ref) {
+        rrQuery = rrQuery.gt("booking_id", cursor_booking_ref);
+      }
     }
 
     const { data: rrRows, error: rrErr } = await rrQuery;
@@ -134,7 +175,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if ((rrRows || []).length > 0) {
+    if ((rrRows || []).length > 0 && !scopeBookingIds) {
       stats.next_cursor = rrRows[rrRows.length - 1].booking_id;
     }
   } catch (err) {
@@ -148,11 +189,15 @@ export default async function handler(req, res) {
       .from("charges")
       .select("id, booking_id, stripe_payment_intent_id, amount, created_at, charge_type")
       .not("stripe_payment_intent_id", "is", null)
-      .order("booking_id", { ascending: true })
-      .limit(batchLimit);
+      .order("booking_id", { ascending: true });
 
-    if (cursor_booking_ref) {
-      cQuery = cQuery.gt("booking_id", cursor_booking_ref);
+    if (scopeBookingIds) {
+      cQuery = cQuery.in("booking_id", scopeBookingIds);
+    } else {
+      cQuery = cQuery.limit(batchLimit);
+      if (cursor_booking_ref) {
+        cQuery = cQuery.gt("booking_id", cursor_booking_ref);
+      }
     }
 
     const { data: cRows, error: cErr } = await cQuery;
@@ -200,11 +245,15 @@ export default async function handler(req, res) {
       .from("tickets")
       .select("id, booking_id, payment_intent_id, amount, created_at")
       .not("payment_intent_id", "is", null)
-      .order("booking_id", { ascending: true })
-      .limit(batchLimit);
+      .order("booking_id", { ascending: true });
 
-    if (cursor_booking_ref) {
-      tQuery = tQuery.gt("booking_id", cursor_booking_ref);
+    if (scopeBookingIds) {
+      tQuery = tQuery.in("booking_id", scopeBookingIds);
+    } else {
+      tQuery = tQuery.limit(batchLimit);
+      if (cursor_booking_ref) {
+        tQuery = tQuery.gt("booking_id", cursor_booking_ref);
+      }
     }
 
     const { data: tRows, error: tErr } = await tQuery;

@@ -258,6 +258,16 @@ test("add-manual-booking: PREFLIGHT — all four Supabase helpers fire together"
   assert.ok(automationCalls.blocked.length  > 0, "blocked date must fire");
 });
 
+test("add-manual-booking: forwards totalPrice so partial cash bookings keep partial revenue state", async () => {
+  resetStore(); resetCalls();
+  const res = makeRes();
+  await handler(makeReq(basePayload({ amountPaid: 75, totalPrice: 200 })), res);
+  assert.equal(res._status, 200);
+  assert.equal(automationCalls.revenue[0].amountPaid, 75);
+  assert.equal(automationCalls.revenue[0].totalPrice, 200);
+  assert.equal(automationCalls.revenue[0].paymentStatus, "partial");
+});
+
 test("add-manual-booking: 409 when dates conflict with an existing booking", async () => {
   resetStore(); resetCalls();
   nextAvailability = false;
