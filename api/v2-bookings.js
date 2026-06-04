@@ -1211,6 +1211,7 @@ export default withAdminAuth(async function handler(req, res) {
                   vehicleName: updatedBooking.vehicleName || "",
                 }),
               }),
+              returnDateAtSend: updatedBooking.returnDate || undefined,
             });
             if (bookingConfirmedSent && updatedBooking.pickupDate !== updatedBooking.returnDate) {
               await sendDedupedSms({
@@ -1222,6 +1223,7 @@ export default withAdminAuth(async function handler(req, res) {
                   booking_id: updatedBooking.bookingId || updatedBooking.paymentIntentId || "",
                   manage_link: "https://slycarrentals.com/manage-booking.html",
                 }),
+                returnDateAtSend: updatedBooking.returnDate || undefined,
               });
             }
           } catch (smsErr) {

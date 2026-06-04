@@ -243,6 +243,7 @@ async function sendLifecycleSmsSequence({
   if (!phone || !bookingId) return;
   const sequence = buildLifecycleTemplateSequence(eventType);
   if (!sequence.length) return;
+  const returnDateAtSend = smsContext?.returnDate || undefined;
   for (const templateKey of sequence) {
     const body = buildLifecycleSmsBody(templateKey, smsContext);
     if (!body) continue;
@@ -251,6 +252,7 @@ async function sendLifecycleSmsSequence({
       templateKey,
       phone,
       body,
+      returnDateAtSend,
       metadata: {
         source,
         payment_state: paymentState || null,

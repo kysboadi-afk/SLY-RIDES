@@ -1288,6 +1288,7 @@ export default async function handler(req, res) {
               vehicleName: car || (CARS[vehicleId] && CARS[vehicleId].name) || vehicleId || "",
             }),
           }),
+          returnDateAtSend: returnDate || undefined,
           metadata: {
             source: "send_reservation_email:full_payment",
             payment_state: "paid",
@@ -1303,6 +1304,7 @@ export default async function handler(req, res) {
               booking_id: persistedBookingId || normalizedPaymentIntentId || "",
               manage_link: "https://slycarrentals.com/manage-booking.html",
             }),
+            returnDateAtSend: returnDate || undefined,
             metadata: {
               source: "send_reservation_email:full_payment",
               payment_state: "paid",
@@ -1319,6 +1321,7 @@ export default async function handler(req, res) {
               booking_id: persistedBookingId || normalizedPaymentIntentId || "",
               manage_link: "https://slycarrentals.com/manage-booking.html",
             }),
+            returnDateAtSend: returnDate || undefined,
             metadata: {
               source: "send_reservation_email:full_payment",
               payment_state: "paid",
