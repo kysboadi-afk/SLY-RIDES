@@ -44,7 +44,7 @@ function makeReq(body, origin = "https://slycarrentals.com", extraHeaders = {}) 
 // bookings.json in-memory store keyed by vehicleId
 const bookingsStore = {};
 // Automation call recorder
-const automationCalls = { revenue: [], customer: [], booking: [], blocked: [], releaseBlocked: [] };
+const automationCalls = { revenue: [], customer: [], booking: [], blocked: [], blockedSync: [], releaseBlocked: [] };
 // SMS calls
 const smsCalls = [];
 const smsMockState = { shouldThrow: false, errorMessage: "TextMagic send failed" };
@@ -96,6 +96,7 @@ mock.module("./_booking-automation.js", {
     autoUpsertCustomer:             async (b, s) => { automationCalls.customer.push({ ...b, countStats: s }); },
     autoUpsertBooking:              async (b) => { automationCalls.booking.push({ ...b }); },
     autoCreateBlockedDate:          async (vid, s, e, r) => { automationCalls.blocked.push({ vehicleId: vid, start: s, end: e, reason: r }); },
+    extendBlockedDateForBooking:    async (vid, ref, d, t) => { automationCalls.blockedSync.push({ vehicleId: vid, bookingRef: ref, returnDate: d, returnTime: t }); },
     autoReleaseBlockedDateOnReturn: async (vid, ref) => { automationCalls.releaseBlocked.push({ vehicleId: vid, bookingRef: ref }); },
     writeAuditLog:                  async () => {},
     parseTime12h:            (t) => {
@@ -325,6 +326,7 @@ function resetCalls() {
   automationCalls.customer.length = 0;
   automationCalls.booking.length = 0;
   automationCalls.blocked.length = 0;
+  automationCalls.blockedSync.length = 0;
   automationCalls.releaseBlocked.length = 0;
   smsCalls.length = 0;
   sentEmails.length = 0;
@@ -384,6 +386,133 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
                 if (av === bv) return 0;
                 return orderAsc ? (av > bv ? 1 : -1) : (av > bv ? -1 : 1);
               });
+            }
+
+            function createIssueFreeDaySupabaseMock({ booking } = {}) {
+              const bookingRows = [{ ...booking }];
+              const revenueRows = [];
+              const rangeRows = [{ booking_ref: booking.booking_ref, vehicle_id: booking.vehicle_id, end_date: booking.return_date }];
+              const smsLogs = [];
+              const smsDeliveryLogs = [];
+
+              return {
+                bookingRows,
+                revenueRows,
+                rangeRows,
+                smsLogs,
+                smsDeliveryLogs,
+                from(table) {
+                  if (table === "bookings") {
+                    const filters = [];
+                    let updatePayload = null;
+                    return {
+                      select() { return this; },
+                      update(payload) { updatePayload = payload || {}; return this; },
+                      eq(column, value) {
+                        filters.push((row) => row[column] === value);
+                        return this;
+                      },
+                      async maybeSingle() {
+                        const row = bookingRows.find((item) => filters.every((fn) => fn(item)));
+                        return { data: row ? { ...row } : null, error: null };
+                      },
+                      then(resolve) {
+                        if (updatePayload) {
+                          bookingRows
+                            .filter((item) => filters.every((fn) => fn(item)))
+                            .forEach((item) => Object.assign(item, updatePayload));
+                        }
+                        resolve({ error: null });
+                      },
+                    };
+                  }
+
+                  if (table === "vehicle_blocking_ranges") {
+                    const filters = [];
+                    let updatePayload = null;
+                    return {
+                      update(payload) { updatePayload = payload || {}; return this; },
+                      eq(column, value) {
+                        filters.push((row) => row[column] === value);
+                        return this;
+                      },
+                      then(resolve) {
+                        if (updatePayload) {
+                          rangeRows
+                            .filter((item) => filters.every((fn) => fn(item)))
+                            .forEach((item) => Object.assign(item, updatePayload));
+                        }
+                        resolve({ error: null });
+                      },
+                    };
+                  }
+
+                  if (table === "revenue_records") {
+                    const filters = [];
+                    let limitCount = null;
+                    return {
+                      select() { return this; },
+                      eq(column, value) {
+                        filters.push((row) => row[column] === value);
+                        return this;
+                      },
+                      limit(value) {
+                        limitCount = Number(value);
+                        return this;
+                      },
+                      async maybeSingle() {
+                        let rows = revenueRows.filter((item) => filters.every((fn) => fn(item)));
+                        if (Number.isFinite(limitCount) && limitCount >= 0) rows = rows.slice(0, limitCount);
+                        return { data: rows[0] ? { ...rows[0] } : null, error: null };
+                      },
+                      async insert(payload) {
+                        const row = { id: revenueRows.length + 1, ...payload };
+                        revenueRows.push(row);
+                        return { error: null };
+                      },
+                    };
+                  }
+
+                  if (table === "sms_logs") {
+                    const filters = {};
+                    return {
+                      select() { return this; },
+                      eq(column, value) {
+                        filters[column] = value;
+                        return this;
+                      },
+                      async maybeSingle() {
+                        const row = smsLogs.find((item) =>
+                          item.booking_id === filters.booking_id &&
+                          item.template_key === filters.template_key &&
+                          item.return_date_at_send === filters.return_date_at_send
+                        );
+                        return { data: row || null, error: null };
+                      },
+                      async upsert(row) {
+                        const exists = smsLogs.some((item) =>
+                          item.booking_id === row.booking_id &&
+                          item.template_key === row.template_key &&
+                          item.return_date_at_send === row.return_date_at_send
+                        );
+                        if (!exists) smsLogs.push({ ...row, id: smsLogs.length + 1 });
+                        return { error: null };
+                      },
+                    };
+                  }
+
+                  if (table === "sms_delivery_logs") {
+                    return {
+                      async insert(row) {
+                        smsDeliveryLogs.push({ ...row, id: smsDeliveryLogs.length + 1 });
+                        return { error: null };
+                      },
+                    };
+                  }
+
+                  throw new Error(`Unexpected table: ${table}`);
+                },
+              };
             }
             if (Number.isFinite(limitCount) && limitCount >= 0) {
               found = found.slice(0, limitCount);
@@ -1344,12 +1473,82 @@ test("update: returnDate and returnTime are accepted and persisted", async () =>
   assert.equal(updateRes._body.booking.returnDate, "2026-04-10", "returnDate should be updated");
   assert.equal(updateRes._body.booking.returnTime, "5:00 PM", "returnTime should be updated");
   assert.equal(smsCalls.length, smsCountBeforeUpdate + 1, "date update should send one SMS");
+  assert.ok(automationCalls.blockedSync.length > 0, "booking-linked blocked_dates sync should run on return date update");
+  assert.equal(automationCalls.blockedSync[0].bookingRef, bookingId);
+  assert.equal(automationCalls.blockedSync[0].returnDate, "2026-04-10");
   const updateSms = smsCalls.at(-1);
   assert.match(updateSms.body, /Sly Car Rentals booking update:/);
   assert.match(updateSms.body, /Pickup: 2026-04-01/);
   assert.match(updateSms.body, /Return: 2026-04-10 at 5:00 PM/);
   // autoUpsertBooking should have been called to sync to Supabase
   assert.ok(automationCalls.booking.length > 0, "Supabase booking sync should be triggered");
+});
+
+test("issue_free_day: applies complimentary day, syncs blocks, records credit, and sends SMS", async () => {
+  resetStore(); resetCalls();
+  bookingsStore.camry = [{
+    bookingId: "bk-free-day-1",
+    paymentIntentId: "pi-free-day-1",
+    vehicleId: "camry",
+    pickupDate: "2026-06-01",
+    returnDate: "2026-06-05",
+    returnTime: "10:00 AM",
+    totalPrice: 400,
+    amountPaid: 200,
+    remainingBalance: 200,
+    paymentStatus: "partial",
+    status: "active_rental",
+    notes: "",
+    name: "Alice Smith",
+    phone: "+13105550001",
+    email: "alice@example.com",
+  }];
+
+  const sb = createIssueFreeDaySupabaseMock({
+    booking: {
+      booking_ref: "bk-free-day-1",
+      payment_intent_id: "pi-free-day-1",
+      vehicle_id: "camry",
+      pickup_date: "2026-06-01",
+      return_date: "2026-06-05",
+      return_time: "10:00:00",
+      total_price: 400,
+      deposit_paid: 200,
+      remaining_balance: 200,
+      payment_status: "partial",
+      payment_method: "manual",
+      notes: "",
+      status: "active_rental",
+      customer_name: "Alice Smith",
+      customer_phone: "+13105550001",
+      renter_phone: "+13105550001",
+      customer_email: "alice@example.com",
+    },
+  });
+  supabaseMockState.client = sb;
+
+  const res = makeRes();
+  await handler(makeReq({
+    secret: "test-admin-secret",
+    action: "issue_free_day",
+    bookingId: "bk-free-day-1",
+    vehicleId: "camry",
+    days: 1,
+    reason: "repair delay",
+  }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body?.success, true);
+  assert.equal(res._body?.freeDay?.days, 1);
+  assert.equal(sb.bookingRows[0].return_date, "2026-06-06", "return date should be extended by one day");
+  assert.ok(Number(sb.bookingRows[0].total_price) < 400, "total price should be reduced by free-day credit");
+  assert.ok(Number(sb.bookingRows[0].remaining_balance) <= 200, "remaining balance should not increase");
+  assert.ok(sb.bookingRows[0].notes.includes("Free Day"), "free-day audit note should be appended");
+  assert.equal(sb.rangeRows[0].end_date, "2026-06-06", "vehicle_blocking_ranges end date should be updated");
+  assert.ok(automationCalls.blockedSync.some((call) => call.bookingRef === "bk-free-day-1" && call.returnDate === "2026-06-06"));
+  assert.ok(sb.revenueRows.some((row) => row.type === "free_day_credit" && Number(row.gross_amount) < 0), "credit revenue row should be written");
+  assert.ok(smsCalls.some((msg) => /complimentary full day/i.test(msg.body)), "renter should receive free-day SMS");
+  assert.equal(bookingsStore.camry[0].returnDate, "2026-06-06", "bookings.json mirror should be updated");
 });
 
 test("list: returns Supabase rows when client is available", async () => {

@@ -1117,25 +1117,6 @@ export async function extendBlockedDateForBooking(vehicleId, bookingRef, newRetu
     const currentEnd = row.end_date ? String(row.end_date).split("T")[0] : null;
     const currentEndTime = row.end_time ? String(row.end_time).substring(0, 5) : null;
 
-    // Determine whether the new end is strictly later than the current stored end.
-    // When both have times, compare the full datetime; otherwise compare dates.
-    const isAlreadyAtOrPast = (() => {
-      if (!currentEnd) return false;
-      if (currentEnd > newEndDate) return true;
-      if (currentEnd < newEndDate) return false;
-      // Same date — compare times if both are available.
-      if (currentEndTime && newEndTime) return currentEndTime >= newEndTime;
-      return true; // Same date, no time comparison possible → treat as at-or-past.
-    })();
-
-    if (isAlreadyAtOrPast) {
-      console.log(
-        `_booking-automation extendBlockedDateForBooking: end already at ${currentEnd}${currentEndTime ? ` ${currentEndTime}` : ""} >= ${newEndDate}${newEndTime ? ` ${newEndTime}` : ""} ` +
-        `for booking_ref=${bookingRef} — no update needed`
-      );
-      return;
-    }
-
     const updatePayload = { end_date: newEndDate };
     if (newEndTime) updatePayload.end_time = newEndTime;
 
