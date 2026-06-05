@@ -31,6 +31,11 @@ import { getRentalState } from "./_rental-state.js";
 import { getSmsPriority } from "./_sms-priority.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
 import {
+  SMS_LOGS_NO_RETURN_DATE,
+  isSmsLogged,
+  sendDedupedSms,
+} from "./_sms-log.js";
+import {
   computeSmsScoreWithBreakdown,
   computeEffectiveThreshold,
   isSuppressedByProximity,
@@ -111,32 +116,14 @@ async function safeSendSms(phone, body) {
 }
 
 /**
- * Log a sent service-alert SMS to sms_logs so other crons can see it via
- * the cross-cron cooldown check.  Uses the sentinel return date (1970-01-01)
- * for service alerts since they are not tied to a specific return date.
- * Non-fatal: errors are only logged.
- * @param {object} extraMetadata - optional additional fields (e.g. { score })
+ * Service alerts are historically deduped via booking.smsSentAt, but that mark
+ * can lag when bookings.json persistence is unavailable. Check sms_logs too so
+ * the same maintenance text is not resent on every cron run.
  */
-async function logServiceAlertToSupabase(sb, bookingId, templateKey, extraMetadata = {}) {
-  if (!sb || !bookingId) return;
-  try {
-    const { error } = await sb
-      .from("sms_logs")
-      .upsert(
-        {
-          booking_id:          bookingId,
-          template_key:        templateKey,
-          return_date_at_send: "1970-01-01",
-          metadata:            { priority: getSmsPriority(templateKey), ...extraMetadata },
-        },
-        { onConflict: "booking_id,template_key,return_date_at_send" }
-      );
-    if (error) {
-      console.warn("maintenance-alerts: sms_logs write failed (non-fatal):", error.message);
-    }
-  } catch (err) {
-    console.warn("maintenance-alerts: sms_logs write failed (non-fatal):", err.message);
-  }
+export async function wasServiceAlertSent(sb, booking, bookingId, templateKey) {
+  if (alreadySent(booking, templateKey)) return true;
+  if (!sb || !bookingId) return false;
+  return await isSmsLogged(bookingId, templateKey, SMS_LOGS_NO_RETURN_DATE);
 }
 
 async function sendOwnerAlertEmail(subject, html) {
@@ -478,7 +465,7 @@ export default async function handler(req, res) {
 
         if (pct >= 1.0) {
           // Overdue (100%+) — high priority
-          if (!alreadySent(booking, kUrgent)) {
+          if (!(await wasServiceAlertSent(sb, booking, bookingId, kUrgent))) {
             candidates.push({
               key:      kUrgent,
               template: MAINTENANCE_AVAILABILITY_URGENT,
@@ -488,7 +475,7 @@ export default async function handler(req, res) {
           }
         } else {
           // Due soon (80%–100%) — standard priority
-          if (!alreadySent(booking, kWarn)) {
+          if (!(await wasServiceAlertSent(sb, booking, bookingId, kWarn))) {
             candidates.push({
               key:      kWarn,
               template: MAINTENANCE_AVAILABILITY_REQUEST,
@@ -541,14 +528,22 @@ export default async function handler(req, res) {
       );
 
       const customerName = booking.name || "there";
-      const sent = await safeSendSms(phone,
-        render(winner.template, { customer_name: customerName })
-      );
+      const sent = await sendDedupedSms({
+        bookingId,
+        templateKey:       winner.key,
+        phone,
+        body:              render(winner.template, { customer_name: customerName }),
+        returnDateAtSend:  SMS_LOGS_NO_RETURN_DATE,
+        metadata: {
+          source:    "maintenance-alerts",
+          priority:  getSmsPriority(winner.key),
+          score:     winner.score,
+          breakdown: winner.breakdown,
+        },
+      });
       if (sent) {
         sentMarks.push({ vehicleId: vid, id: bookingId, key: winner.key });
         alertsSent++;
-        // Log to sms_logs with score so other crons and dashboards see this send.
-        await logServiceAlertToSupabase(sb, bookingId, winner.key, { score: winner.score, breakdown: winner.breakdown });
       }
       if (scoredCandidates.length > 1) {
         const suppressed = scoredCandidates
