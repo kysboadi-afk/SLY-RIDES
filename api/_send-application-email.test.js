@@ -138,6 +138,29 @@ test("returns 400 when required consents are not all accepted", async () => {
   assert.ok(String(res._body.error || "").includes("required consents"));
 });
 
+test("returns 200 even when SMTP credentials are missing", async () => {
+  sentMails.length = 0;
+  const original = {
+    host: process.env.SMTP_HOST,
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  };
+  try {
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASS;
+    const res = makeRes();
+    await handler(makeReq("POST", VALID_BODY), res);
+    assert.equal(res._status, 200);
+    assert.equal(res._body.success, true);
+    assert.equal(sentMails.length, 0);
+  } finally {
+    process.env.SMTP_HOST = original.host;
+    process.env.SMTP_USER = original.user;
+    process.env.SMTP_PASS = original.pass;
+  }
+});
+
 test("returns 200 and sends email for valid application", async () => {
   sentMails.length = 0;
   const res = makeRes();
