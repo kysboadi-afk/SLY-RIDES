@@ -31,6 +31,18 @@ test("wasServiceAlertSent: returns true when sms_logs already has the service al
   assert.equal(sent, true);
 });
 
+test("wasServiceAlertSent: returns true when the key was prefetched from sms_logs", async () => {
+  const sent = await wasServiceAlertSent(
+    null,
+    { smsSentAt: {} },
+    "bk-maint-002",
+    "maint_oil_warn",
+    new Set(["maint_oil_warn"])
+  );
+
+  assert.equal(sent, true);
+});
+
 test("wasServiceAlertSent: returns false when neither smsSentAt nor sms_logs has a matching alert", async () => {
   const sb = buildSmsLogLookupClient(null);
 
