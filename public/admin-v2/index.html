@@ -3790,6 +3790,53 @@
   </div>
 </div>
 
+<!-- Free Day Modal -->
+<div class="modal-overlay" id="free-day-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <div class="modal-title">🎁 Issue Free Day</div>
+      <button class="modal-close" onclick="closeModal('free-day-modal')">✕</button>
+    </div>
+    <div style="padding:4px 0 12px;">
+      <p style="font-size:13px;color:var(--text-sub);margin-bottom:14px;">
+        Issue a complimentary full day or half day. This updates return date, balance, availability sync, and renter SMS.
+      </p>
+      <input type="hidden" id="fd-booking-id">
+      <input type="hidden" id="fd-vehicle-id">
+      <input type="hidden" id="fd-current-return-date">
+      <input type="hidden" id="fd-current-return-time">
+      <input type="hidden" id="fd-current-total-price">
+      <input type="hidden" id="fd-current-pickup-date">
+      <div style="display:grid;gap:12px;">
+        <div>
+          <label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px;">Complimentary Time</label>
+          <select id="fd-days" class="form-input" onchange="updateFreeDayPreview()" style="font-size:13px;">
+            <option value="1">Full Day (1.0)</option>
+            <option value="0.5">Half Day (0.5)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px;">Reason</label>
+          <select id="fd-reason" class="form-input" style="font-size:13px;">
+            <option value="vehicle issue">Vehicle issue</option>
+            <option value="repair delay">Repair delay</option>
+            <option value="late delivery">Late delivery</option>
+            <option value="courtesy">Courtesy</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div id="fd-preview" style="font-size:12px;color:var(--text-sub);background:var(--bg-soft,#f8fafc);border:1px solid var(--border);border-radius:8px;padding:10px;">
+          Preview unavailable.
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('free-day-modal')">Cancel</button>
+      <button class="btn btn-success" id="fd-submit-btn" onclick="submitFreeDay(this)">✓ Issue Free Day</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Applications Review Queue Page ─────────────────────────────────────── -->
 <div id="page-applications" class="page">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
@@ -7226,6 +7273,7 @@ function viewBooking(bookingId, vehicleId) {
           ? `<button class="btn btn-secondary" onclick="extendBooking('${esc(actionBookingId)}','${esc(b.vehicleId || '')}',this);closeModal('booking-detail-modal')" style="background:var(--primary);color:#fff;border-color:var(--primary);">🔄 Extend Rental</button>`
           : '';
       })()}
+      <button class="btn btn-secondary" onclick="openFreeDayModal('${esc(actionBookingId)}','${esc(b.vehicleId || '')}',this)" style="background:#0f766e;color:#fff;border-color:#0f766e;">🎁 Issue Free Day</button>
       <button class="btn btn-danger" onclick="cancelActiveRentalWithConfirm('${esc(b.vehicleId || '')}','${esc(actionBookingId)}',this)">Cancel Booking</button>
     ` : ''}
     ${b.paymentStatus !== 'paid' ? `
@@ -7674,6 +7722,118 @@ function openResendExtensionModal(bookingId, vehicleId, _btn) {
   document.getElementById('re-skip-email').checked = !!(b && b.extensionCount > 0);
   closeModal('booking-detail-modal');
   openModal('resend-extension-modal');
+}
+
+function computeFreeDayReturnShift(returnDate, returnTime, days) {
+  if (!returnDate) return null;
+  const rawTime = String(returnTime || '10:00 AM').trim();
+  const ampmMatch = rawTime.match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+  let hhmm = '10:00';
+  if (ampmMatch) {
+    let h = Number(ampmMatch[1]);
+    const m = ampmMatch[2];
+    const period = ampmMatch[3].toUpperCase();
+    if (period === 'PM' && h !== 12) h += 12;
+    if (period === 'AM' && h === 12) h = 0;
+    hhmm = `${String(h).padStart(2, '0')}:${m}`;
+  } else {
+    const h24Match = rawTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if (h24Match) hhmm = `${String(parseInt(h24Match[1], 10)).padStart(2, '0')}:${h24Match[2]}`;
+  }
+  const base = new Date(`${returnDate}T${hhmm}:00Z`);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setUTCHours(base.getUTCHours() + Math.round(Number(days || 0) * 24));
+  return {
+    date: base.toISOString().slice(0, 10),
+    time24: base.toISOString().slice(11, 16),
+    time12: fmt12h(base.toISOString().slice(11, 16)) || base.toISOString().slice(11, 16),
+  };
+}
+
+function updateFreeDayPreview() {
+  const currentReturnDate = (document.getElementById('fd-current-return-date')?.value || '').trim();
+  const currentReturnTime = (document.getElementById('fd-current-return-time')?.value || '').trim();
+  const currentPickupDate = (document.getElementById('fd-current-pickup-date')?.value || '').trim();
+  const currentTotalPrice = parseFloat(document.getElementById('fd-current-total-price')?.value || '0') || 0;
+  const days = Number(document.getElementById('fd-days')?.value || 1);
+  const preview = document.getElementById('fd-preview');
+  if (!preview) return;
+
+  const shifted = computeFreeDayReturnShift(currentReturnDate, currentReturnTime, days);
+  if (!shifted) {
+    preview.textContent = 'Preview unavailable.';
+    return;
+  }
+
+  const rentalDays = currentPickupDate
+    ? Math.max(1, Math.round((new Date(currentReturnDate) - new Date(currentPickupDate)) / 86400000))
+    : 1;
+  const dailyRate = rentalDays > 0 ? (currentTotalPrice / rentalDays) : currentTotalPrice;
+  const credit = Math.max(0, Math.round(dailyRate * days * 100) / 100);
+  const nextTotal = Math.max(0, Math.round((currentTotalPrice - credit) * 100) / 100);
+  preview.innerHTML =
+    `<div><strong>New Return:</strong> ${esc(shifted.date)}${shifted.time12 ? ` at ${esc(shifted.time12)}` : ''}</div>` +
+    `<div style="margin-top:4px;"><strong>Credit:</strong> -$${formatMoney(credit)}</div>` +
+    `<div style="margin-top:4px;"><strong>Updated Total:</strong> $${formatMoney(nextTotal)}</div>`;
+}
+
+function openFreeDayModal(bookingId, vehicleId, _btn) {
+  const b = findBookingByIdForActions(bookingId);
+  if (!b) { showToast('Booking not found.', 'error'); return; }
+  const resolvedVehicle = vehicleId || b.vehicleId || '';
+  document.getElementById('fd-booking-id').value = bookingId;
+  document.getElementById('fd-vehicle-id').value = resolvedVehicle;
+  document.getElementById('fd-current-return-date').value = b.returnDate || '';
+  document.getElementById('fd-current-return-time').value = b.returnTime || '';
+  document.getElementById('fd-current-total-price').value = Number(b.totalPrice || 0);
+  document.getElementById('fd-current-pickup-date').value = b.pickupDate || '';
+  document.getElementById('fd-days').value = '1';
+  document.getElementById('fd-reason').value = 'vehicle issue';
+  updateFreeDayPreview();
+  closeModal('booking-detail-modal');
+  openModal('free-day-modal');
+}
+
+function submitFreeDay(btn) {
+  const bookingId = (document.getElementById('fd-booking-id')?.value || '').trim();
+  const vehicleId = (document.getElementById('fd-vehicle-id')?.value || '').trim();
+  const days = Number(document.getElementById('fd-days')?.value || 1);
+  const reason = (document.getElementById('fd-reason')?.value || '').trim() || 'courtesy';
+  if (!bookingId || !vehicleId) {
+    showToast('Missing booking or vehicle details.', 'error');
+    return;
+  }
+  if (![1, 0.5].includes(days)) {
+    showToast('Please select a valid complimentary period.', 'error');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+
+  apiPost('/api/v2-bookings', {
+    secret: adminSessionToken,
+    action: 'issue_free_day',
+    bookingId,
+    vehicleId,
+    days,
+    reason,
+  }).then((data) => {
+    const newReturn = data?.freeDay?.newReturnDate || 'updated date';
+    showToast(`✅ Complimentary ${days === 1 ? 'full' : 'half'} day issued. New return: ${newReturn}.`, 'success');
+    closeModal('free-day-modal');
+    loadBookings();
+    setTimeout(() => {
+      try {
+        const maybePromise = loadSystemHealth();
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          maybePromise.catch(() => {});
+        }
+      } catch {}
+    }, 350);
+  }).catch((err) => {
+    showToast('Error issuing free day: ' + (err.message || 'Unknown error'), 'error');
+  }).finally(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Issue Free Day'; }
+  });
 }
 
 /**

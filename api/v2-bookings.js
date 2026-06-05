@@ -7,6 +7,7 @@
     //   list      — { secret, action:"list", vehicleId?, status?, include_deleted? }
 //   list_raw  — { secret, action:"list_raw" }  (unfiltered Supabase read — Phase 6)
 //   update    — { secret, action:"update", vehicleId, bookingId, updates:{status,...} }
+//   issue_free_day — { secret, action:"issue_free_day", bookingId, vehicleId, days:1|0.5, reason? }
     //   delete    — { secret, action:"delete", bookingId, reason?, hardDelete? }
     //   restore   — { secret, action:"restore", bookingId }
 //   create    — { secret, action:"create", ...bookingFields } (manual booking)
@@ -38,6 +39,7 @@ import {
   autoUpsertCustomer,
   autoUpsertBooking,
   autoCreateBlockedDate,
+  extendBlockedDateForBooking,
   autoReleaseBlockedDateOnReturn,
   parseTime12h,
   writeAuditLog,
@@ -93,6 +95,7 @@ function roundMoney(value) {
 
 const OFFLINE_PAYMENT_METHODS = new Set(["cash", "manual", "zelle", "venmo", "external", "offline"]);
 const SUPPLEMENTAL_REVENUE_TYPES = new Set(["rental_balance", "partial_balance", "reservation_deposit"]);
+const FREE_DAY_ALLOWED_DAYS = new Set([0.5, 1]);
 
 function derivePaymentStatusFromAmounts(amountPaid, totalPrice) {
   const paid = roundMoney(amountPaid || 0);
@@ -100,6 +103,37 @@ function derivePaymentStatusFromAmounts(amountPaid, totalPrice) {
   if (paid <= 0) return "unpaid";
   if (total > 0 && paid < total) return "partial";
   return "paid";
+}
+
+function format12HourTimeFrom24(time24) {
+  const m = String(time24 || "").match(/^(\d{2}):(\d{2})/);
+  if (!m) return "";
+  let hour = Number(m[1]);
+  const minute = m[2];
+  const period = hour >= 12 ? "PM" : "AM";
+  hour %= 12;
+  if (hour === 0) hour = 12;
+  return `${hour}:${minute} ${period}`;
+}
+
+function addHoursToBookingReturn(returnDate, returnTime, addedHours) {
+  const normalizedDate = String(returnDate || "").trim();
+  if (!normalizedDate) return null;
+  const parsedTime = parseTime12h(returnTime || "10:00 AM") || "10:00:00";
+  const base = new Date(`${normalizedDate}T${String(parsedTime).substring(0, 8)}Z`);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setUTCHours(base.getUTCHours() + Number(addedHours || 0));
+  return {
+    returnDate: base.toISOString().slice(0, 10),
+    returnTime: format12HourTimeFrom24(base.toISOString().slice(11, 16)),
+  };
+}
+
+function buildFreeDayNote({ days, reason, newReturnDate, creditAmount }) {
+  const ts = isoDateInLA();
+  const dayLabel = Number(days) === 1 ? "1 day" : "0.5 day";
+  const reasonLabel = String(reason || "courtesy").trim() || "courtesy";
+  return `[Free Day – ${ts}] ${dayLabel} issued by admin. Reason: ${reasonLabel}. New return: ${newReturnDate}. Credit: -$${Number(creditAmount || 0).toFixed(2)}`;
 }
 
 function isOfflineRevenueBooking(booking = {}) {
@@ -1499,14 +1533,13 @@ export default withAdminAuth(async function handler(req, res) {
         // booked-dates.json stay consistent with the updated dates.
         await autoUpsertBooking(updatedBooking);
         if (safeUpdates.returnDate && updatedBooking.pickupDate && updatedBooking.returnDate) {
-          // Re-block with the corrected date range so /api/booked-dates returns
-          // the updated range and "Next Available" badges show correctly.
-          await autoCreateBlockedDate(
+          // Keep blocked_dates synced to the booking_ref-owned row so date
+          // corrections (including shortening the return date) update in place
+          // and do not create stale orphan block rows.
+          await extendBlockedDateForBooking(
             updatedBooking.vehicleId,
-            updatedBooking.pickupDate,
-            updatedBooking.returnDate,
-            "booking",
             updatedBooking.bookingId || null,
+            updatedBooking.returnDate,
             updatedBooking.returnTime || null
           );
           await blockBookedDates(updatedBooking.vehicleId, updatedBooking.pickupDate, updatedBooking.returnDate).catch((err) => {
@@ -1577,6 +1610,243 @@ export default withAdminAuth(async function handler(req, res) {
       }
 
       return res.status(200).json({ success: true, booking: updatedBooking });
+    }
+
+    // ── ISSUE_FREE_DAY — admin-issued complimentary full/half day ───────────
+    if (action === "issue_free_day") {
+      const bookingId = String(body.bookingId || "").trim();
+      const vehicleId = normalizeVehicleId(body.vehicleId || "");
+      const requestedDays = Number(body.days);
+      const reason = String(body.reason || "").trim() || "courtesy";
+
+      if (!bookingId) return res.status(400).json({ error: "bookingId is required" });
+      if (!vehicleId) return res.status(400).json({ error: "vehicleId is required" });
+      if (!FREE_DAY_ALLOWED_DAYS.has(requestedDays)) {
+        return res.status(400).json({ error: "days must be 1 or 0.5" });
+      }
+
+      const sb = getSupabaseAdmin();
+      if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+      const { data: bookingRow, error: bookingErr } = await sb
+        .from("bookings")
+        .select(
+          "booking_ref, payment_intent_id, vehicle_id, pickup_date, return_date, return_time, total_price, deposit_paid, " +
+          "remaining_balance, payment_status, payment_method, notes, status, customer_name, customer_phone, renter_phone, customer_email"
+        )
+        .eq("booking_ref", bookingId)
+        .maybeSingle();
+
+      if (bookingErr) return res.status(500).json({ error: `Booking lookup failed: ${bookingErr.message}` });
+      if (!bookingRow) return res.status(404).json({ error: `Booking "${bookingId}" not found` });
+
+      const rowVehicleId = normalizeVehicleId(bookingRow.vehicle_id || "");
+      if (rowVehicleId && rowVehicleId !== vehicleId) {
+        return res.status(400).json({ error: "vehicleId does not match booking vehicle" });
+      }
+      if (!bookingRow.pickup_date || !bookingRow.return_date) {
+        return res.status(400).json({ error: "Booking must have pickup_date and return_date" });
+      }
+
+      const nextReturn = addHoursToBookingReturn(
+        bookingRow.return_date,
+        bookingRow.return_time || null,
+        requestedDays * 24
+      );
+      if (!nextReturn?.returnDate) {
+        return res.status(400).json({ error: "Unable to calculate updated return date" });
+      }
+
+      const currentTotalPrice = roundMoney(bookingRow.total_price || 0);
+      const currentAmountPaid = roundMoney(bookingRow.deposit_paid || 0);
+      const rentalDays = Math.max(1, Number(computeRentalDays(bookingRow.pickup_date, bookingRow.return_date)) || 1);
+      const dailyRate = roundMoney(currentTotalPrice / rentalDays);
+      const creditAmount = roundMoney(dailyRate * requestedDays);
+      const nextTotalPrice = roundMoney(Math.max(0, currentTotalPrice - creditAmount));
+      const nextRemainingBalance = roundMoney(Math.max(0, nextTotalPrice - currentAmountPaid));
+      const nextPaymentStatus = derivePaymentStatusFromAmounts(currentAmountPaid, nextTotalPrice);
+      const freeDayNote = buildFreeDayNote({
+        days: requestedDays,
+        reason,
+        newReturnDate: nextReturn.returnDate,
+        creditAmount,
+      });
+      const nextNotes = [String(bookingRow.notes || "").trim(), freeDayNote].filter(Boolean).join("\n");
+
+      const bookingPatch = {
+        return_date: nextReturn.returnDate,
+        return_time: parseTime12h(nextReturn.returnTime || bookingRow.return_time || null),
+        total_price: nextTotalPrice,
+        remaining_balance: nextRemainingBalance,
+        payment_status: nextPaymentStatus,
+        notes: nextNotes,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: bookingUpdateErr } = await sb
+        .from("bookings")
+        .update(bookingPatch)
+        .eq("booking_ref", bookingId);
+      if (bookingUpdateErr) {
+        return res.status(500).json({ error: `Failed to issue free day: ${bookingUpdateErr.message}` });
+      }
+
+      await extendBlockedDateForBooking(
+        rowVehicleId || vehicleId,
+        bookingId,
+        nextReturn.returnDate,
+        nextReturn.returnTime || bookingRow.return_time || null
+      );
+      await blockBookedDates(
+        uiVehicleId(rowVehicleId || vehicleId) || vehicleId,
+        bookingRow.pickup_date,
+        nextReturn.returnDate
+      ).catch((err) => {
+        console.warn("v2-bookings issue_free_day: blockBookedDates sync failed (non-fatal):", err.message);
+      });
+
+      try {
+        await sb
+          .from("vehicle_blocking_ranges")
+          .update({ end_date: nextReturn.returnDate })
+          .eq("booking_ref", bookingId)
+          .eq("vehicle_id", rowVehicleId || vehicleId);
+      } catch (rangeErr) {
+        console.warn("v2-bookings issue_free_day: vehicle_blocking_ranges update skipped (non-fatal):", rangeErr.message);
+      }
+
+      try {
+        const { data: existingCredit } = await sb
+          .from("revenue_records")
+          .select("id")
+          .eq("booking_id", bookingId)
+          .eq("type", "free_day_credit")
+          .eq("return_date", nextReturn.returnDate)
+          .eq("gross_amount", -creditAmount)
+          .limit(1)
+          .maybeSingle();
+        if (!existingCredit?.id) {
+          const { error: creditErr } = await sb.from("revenue_records").insert({
+            booking_id: bookingId,
+            booking_ref: bookingId,
+            payment_intent_id: bookingRow.payment_intent_id || null,
+            vehicle_id: rowVehicleId || vehicleId,
+            customer_name: bookingRow.customer_name || null,
+            customer_phone: bookingRow.customer_phone || bookingRow.renter_phone || null,
+            customer_email: bookingRow.customer_email || null,
+            pickup_date: bookingRow.pickup_date,
+            return_date: nextReturn.returnDate,
+            gross_amount: -creditAmount,
+            deposit_amount: 0,
+            refund_amount: 0,
+            payment_method: bookingRow.payment_method || "manual",
+            payment_status: nextPaymentStatus,
+            type: "free_day_credit",
+            notes: freeDayNote,
+            is_no_show: false,
+            is_cancelled: false,
+            override_by_admin: true,
+          });
+          if (creditErr) {
+            console.error("v2-bookings issue_free_day: revenue credit insert failed (non-fatal):", creditErr.message);
+          }
+        }
+      } catch (creditCatchErr) {
+        console.error("v2-bookings issue_free_day: revenue credit lookup/insert failed (non-fatal):", creditCatchErr.message);
+      }
+
+      const responseBooking = {
+        bookingId,
+        paymentIntentId: bookingRow.payment_intent_id || "",
+        vehicleId: uiVehicleId(rowVehicleId || vehicleId) || vehicleId,
+        pickupDate: bookingRow.pickup_date || "",
+        returnDate: nextReturn.returnDate,
+        returnTime: nextReturn.returnTime || "",
+        totalPrice: nextTotalPrice,
+        amountPaid: currentAmountPaid,
+        remainingBalance: nextRemainingBalance,
+        paymentStatus: nextPaymentStatus,
+        notes: nextNotes,
+        status: toAppBookingStatus(bookingRow.status),
+        name: bookingRow.customer_name || "",
+        phone: bookingRow.customer_phone || bookingRow.renter_phone || "",
+        email: bookingRow.customer_email || "",
+      };
+
+      try {
+        await autoUpsertBooking(responseBooking);
+      } catch (syncErr) {
+        console.error("v2-bookings issue_free_day: booking sync failed (non-fatal):", syncErr.message);
+      }
+
+      try {
+        await updateJsonFileWithRetry({
+          load: loadBookings,
+          apply: (data) => {
+            const targetVehicleId = responseBooking.vehicleId;
+            const rows = Array.isArray(data[targetVehicleId]) ? data[targetVehicleId] : [];
+            const idx = rows.findIndex((row) =>
+              row.bookingId === bookingId || row.paymentIntentId === bookingId
+            );
+            if (idx < 0) return;
+            rows[idx] = {
+              ...rows[idx],
+              returnDate: nextReturn.returnDate,
+              returnTime: nextReturn.returnTime || rows[idx].returnTime || "",
+              totalPrice: nextTotalPrice,
+              paymentStatus: nextPaymentStatus,
+              notes: nextNotes,
+              updatedAt: new Date().toISOString(),
+            };
+            data[targetVehicleId] = rows;
+          },
+          save: saveBookings,
+          message: `v2-bookings: issue free day for ${bookingId}`,
+        });
+      } catch (jsonErr) {
+        console.error("v2-bookings issue_free_day: bookings.json update failed (non-fatal):", jsonErr.message);
+      }
+
+      if (
+        shouldSendBookingLifecycleSms("v2_bookings") &&
+        responseBooking.phone &&
+        process.env.TEXTMAGIC_USERNAME &&
+        process.env.TEXTMAGIC_API_KEY
+      ) {
+        try {
+          await sendDedupedSms({
+            bookingId,
+            templateKey: "free_day_issued",
+            phone: responseBooking.phone,
+            body:
+              `Good news! We've issued you a complimentary ${requestedDays === 1 ? "full" : "half"} day on your rental of ` +
+              `${responseBooking.vehicleId || "your vehicle"}. Your new return date is ${nextReturn.returnDate}. No action needed.`,
+            returnDateAtSend: nextReturn.returnDate,
+            metadata: {
+              source: "v2_bookings_issue_free_day",
+              free_day_days: requestedDays,
+              reason,
+              credit_amount: creditAmount,
+              new_return_date: nextReturn.returnDate,
+            },
+          });
+        } catch (smsErr) {
+          console.error("v2-bookings issue_free_day: sms send failed (non-fatal):", smsErr.message);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        booking: responseBooking,
+        freeDay: {
+          days: requestedDays,
+          reason,
+          creditAmount,
+          previousReturnDate: bookingRow.return_date,
+          newReturnDate: nextReturn.returnDate,
+          newReturnTime: nextReturn.returnTime || "",
+        },
+      });
     }
 
     // ── DELETE (soft-delete by default; optional hard-delete) ─────────────────
