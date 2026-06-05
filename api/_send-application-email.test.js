@@ -161,6 +161,22 @@ test("returns 200 even when SMTP credentials are missing", async () => {
   }
 });
 
+test("returns 200 when notification delivery throws", async () => {
+  const originalImpl = async (opts) => { sentMails.push(opts); };
+  mockSendMail.mock.mockImplementation(async () => {
+    throw new Error("SMTP send failed");
+  });
+  try {
+    const res = makeRes();
+    await handler(makeReq("POST", VALID_BODY_WITH_EMAIL), res);
+    assert.equal(res._status, 200);
+    assert.equal(res._body.success, true);
+    assert.equal(res._body.notificationWarning, "Application saved, but notification delivery failed.");
+  } finally {
+    mockSendMail.mock.mockImplementation(originalImpl);
+  }
+});
+
 test("returns 200 and sends email for valid application", async () => {
   sentMails.length = 0;
   const res = makeRes();

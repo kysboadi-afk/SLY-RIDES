@@ -224,6 +224,7 @@ export default async function handler(req, res) {
     });
   }
 
+  let notificationDispatchError = null;
   try {
     await sendSubmittedApplicationNotifications({
       ...(applicationRecord || {}),
@@ -249,29 +250,34 @@ export default async function handler(req, res) {
       applicationStatus: applicationRecord?.application_status || "submitted",
       identityStatus: applicationRecord?.identity_status || "not_started",
     }, { attachments });
-
-    // ─── TextMagic contact upsert ─────────────────────────────────────────────
-    if (phone) {
-      try {
-        await upsertContact(normalizePhone(phone), name || "", { addTags: ["application"] });
-      } catch (contactErr) {
-        console.error("TextMagic contact upsert failed:", contactErr);
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      decision,
-      precheckDecision: decision,
-      applicationId: persistedApplicationId || null,
-      applicationStatus: applicationRecord?.application_status || "submitted",
-      identityStatus: applicationRecord?.identity_status || "not_started",
-    });
   } catch (err) {
-    console.error("Application email failed:", {
-      error: summarizeSupabaseError(err),
+    notificationDispatchError = summarizeSupabaseError(err);
+    console.error("Application notification dispatch failed:", {
+      error: notificationDispatchError,
       diagnostics: uploadDiagnostics,
     });
-    return res.status(500).json({ error: "Failed to send application email." });
   }
+
+  // ─── TextMagic contact upsert ─────────────────────────────────────────────
+  if (phone) {
+    try {
+      await upsertContact(normalizePhone(phone), name || "", { addTags: ["application"] });
+    } catch (contactErr) {
+      console.error("TextMagic contact upsert failed:", contactErr);
+    }
+  }
+
+  const responsePayload = {
+    success: true,
+    decision,
+    precheckDecision: decision,
+    applicationId: persistedApplicationId || null,
+    applicationStatus: applicationRecord?.application_status || "submitted",
+    identityStatus: applicationRecord?.identity_status || "not_started",
+  };
+  if (notificationDispatchError) {
+    responsePayload.notificationWarning = "Application saved, but notification delivery failed.";
+  }
+
+  return res.status(200).json(responsePayload);
 }
