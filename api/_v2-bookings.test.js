@@ -387,133 +387,6 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
                 return orderAsc ? (av > bv ? 1 : -1) : (av > bv ? -1 : 1);
               });
             }
-
-            function createIssueFreeDaySupabaseMock({ booking } = {}) {
-              const bookingRows = [{ ...booking }];
-              const revenueRows = [];
-              const rangeRows = [{ booking_ref: booking.booking_ref, vehicle_id: booking.vehicle_id, end_date: booking.return_date }];
-              const smsLogs = [];
-              const smsDeliveryLogs = [];
-
-              return {
-                bookingRows,
-                revenueRows,
-                rangeRows,
-                smsLogs,
-                smsDeliveryLogs,
-                from(table) {
-                  if (table === "bookings") {
-                    const filters = [];
-                    let updatePayload = null;
-                    return {
-                      select() { return this; },
-                      update(payload) { updatePayload = payload || {}; return this; },
-                      eq(column, value) {
-                        filters.push((row) => row[column] === value);
-                        return this;
-                      },
-                      async maybeSingle() {
-                        const row = bookingRows.find((item) => filters.every((fn) => fn(item)));
-                        return { data: row ? { ...row } : null, error: null };
-                      },
-                      then(resolve) {
-                        if (updatePayload) {
-                          bookingRows
-                            .filter((item) => filters.every((fn) => fn(item)))
-                            .forEach((item) => Object.assign(item, updatePayload));
-                        }
-                        resolve({ error: null });
-                      },
-                    };
-                  }
-
-                  if (table === "vehicle_blocking_ranges") {
-                    const filters = [];
-                    let updatePayload = null;
-                    return {
-                      update(payload) { updatePayload = payload || {}; return this; },
-                      eq(column, value) {
-                        filters.push((row) => row[column] === value);
-                        return this;
-                      },
-                      then(resolve) {
-                        if (updatePayload) {
-                          rangeRows
-                            .filter((item) => filters.every((fn) => fn(item)))
-                            .forEach((item) => Object.assign(item, updatePayload));
-                        }
-                        resolve({ error: null });
-                      },
-                    };
-                  }
-
-                  if (table === "revenue_records") {
-                    const filters = [];
-                    let limitCount = null;
-                    return {
-                      select() { return this; },
-                      eq(column, value) {
-                        filters.push((row) => row[column] === value);
-                        return this;
-                      },
-                      limit(value) {
-                        limitCount = Number(value);
-                        return this;
-                      },
-                      async maybeSingle() {
-                        let rows = revenueRows.filter((item) => filters.every((fn) => fn(item)));
-                        if (Number.isFinite(limitCount) && limitCount >= 0) rows = rows.slice(0, limitCount);
-                        return { data: rows[0] ? { ...rows[0] } : null, error: null };
-                      },
-                      async insert(payload) {
-                        const row = { id: revenueRows.length + 1, ...payload };
-                        revenueRows.push(row);
-                        return { error: null };
-                      },
-                    };
-                  }
-
-                  if (table === "sms_logs") {
-                    const filters = {};
-                    return {
-                      select() { return this; },
-                      eq(column, value) {
-                        filters[column] = value;
-                        return this;
-                      },
-                      async maybeSingle() {
-                        const row = smsLogs.find((item) =>
-                          item.booking_id === filters.booking_id &&
-                          item.template_key === filters.template_key &&
-                          item.return_date_at_send === filters.return_date_at_send
-                        );
-                        return { data: row || null, error: null };
-                      },
-                      async upsert(row) {
-                        const exists = smsLogs.some((item) =>
-                          item.booking_id === row.booking_id &&
-                          item.template_key === row.template_key &&
-                          item.return_date_at_send === row.return_date_at_send
-                        );
-                        if (!exists) smsLogs.push({ ...row, id: smsLogs.length + 1 });
-                        return { error: null };
-                      },
-                    };
-                  }
-
-                  if (table === "sms_delivery_logs") {
-                    return {
-                      async insert(row) {
-                        smsDeliveryLogs.push({ ...row, id: smsDeliveryLogs.length + 1 });
-                        return { error: null };
-                      },
-                    };
-                  }
-
-                  throw new Error(`Unexpected table: ${table}`);
-                },
-              };
-            }
             if (Number.isFinite(limitCount) && limitCount >= 0) {
               found = found.slice(0, limitCount);
             }
@@ -545,6 +418,133 @@ function createSendPaymentLinkSupabaseMock({ bookings = [] } = {}) {
               item.return_date_at_send === filters.return_date_at_send
             );
             return { data: existing || null, error: null };
+          },
+          async upsert(row) {
+            const exists = smsLogs.some((item) =>
+              item.booking_id === row.booking_id &&
+              item.template_key === row.template_key &&
+              item.return_date_at_send === row.return_date_at_send
+            );
+            if (!exists) smsLogs.push({ ...row, id: smsLogs.length + 1 });
+            return { error: null };
+          },
+        };
+      }
+
+      if (table === "sms_delivery_logs") {
+        return {
+          async insert(row) {
+            smsDeliveryLogs.push({ ...row, id: smsDeliveryLogs.length + 1 });
+            return { error: null };
+          },
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+}
+
+function createIssueFreeDaySupabaseMock({ booking } = {}) {
+  const bookingRows = [{ ...booking }];
+  const revenueRows = [];
+  const rangeRows = [{ booking_ref: booking.booking_ref, vehicle_id: booking.vehicle_id, end_date: booking.return_date }];
+  const smsLogs = [];
+  const smsDeliveryLogs = [];
+
+  return {
+    bookingRows,
+    revenueRows,
+    rangeRows,
+    smsLogs,
+    smsDeliveryLogs,
+    from(table) {
+      if (table === "bookings") {
+        const filters = [];
+        let updatePayload = null;
+        return {
+          select() { return this; },
+          update(payload) { updatePayload = payload || {}; return this; },
+          eq(column, value) {
+            filters.push((row) => row[column] === value);
+            return this;
+          },
+          async maybeSingle() {
+            const row = bookingRows.find((item) => filters.every((fn) => fn(item)));
+            return { data: row ? { ...row } : null, error: null };
+          },
+          then(resolve) {
+            if (updatePayload) {
+              bookingRows
+                .filter((item) => filters.every((fn) => fn(item)))
+                .forEach((item) => Object.assign(item, updatePayload));
+            }
+            resolve({ error: null });
+          },
+        };
+      }
+
+      if (table === "vehicle_blocking_ranges") {
+        const filters = [];
+        let updatePayload = null;
+        return {
+          update(payload) { updatePayload = payload || {}; return this; },
+          eq(column, value) {
+            filters.push((row) => row[column] === value);
+            return this;
+          },
+          then(resolve) {
+            if (updatePayload) {
+              rangeRows
+                .filter((item) => filters.every((fn) => fn(item)))
+                .forEach((item) => Object.assign(item, updatePayload));
+            }
+            resolve({ error: null });
+          },
+        };
+      }
+
+      if (table === "revenue_records") {
+        const filters = [];
+        let limitCount = null;
+        return {
+          select() { return this; },
+          eq(column, value) {
+            filters.push((row) => row[column] === value);
+            return this;
+          },
+          limit(value) {
+            limitCount = Number(value);
+            return this;
+          },
+          async maybeSingle() {
+            let rows = revenueRows.filter((item) => filters.every((fn) => fn(item)));
+            if (Number.isFinite(limitCount) && limitCount >= 0) rows = rows.slice(0, limitCount);
+            return { data: rows[0] ? { ...rows[0] } : null, error: null };
+          },
+          async insert(payload) {
+            const row = { id: revenueRows.length + 1, ...payload };
+            revenueRows.push(row);
+            return { error: null };
+          },
+        };
+      }
+
+      if (table === "sms_logs") {
+        const filters = {};
+        return {
+          select() { return this; },
+          eq(column, value) {
+            filters[column] = value;
+            return this;
+          },
+          async maybeSingle() {
+            const row = smsLogs.find((item) =>
+              item.booking_id === filters.booking_id &&
+              item.template_key === filters.template_key &&
+              item.return_date_at_send === filters.return_date_at_send
+            );
+            return { data: row || null, error: null };
           },
           async upsert(row) {
             const exists = smsLogs.some((item) =>
