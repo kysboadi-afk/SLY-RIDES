@@ -32,7 +32,6 @@ import { getSmsPriority } from "./_sms-priority.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
 import {
   SMS_LOGS_NO_RETURN_DATE,
-  isSmsLogged,
   sendDedupedSms,
 } from "./_sms-log.js";
 import {
@@ -123,7 +122,23 @@ async function safeSendSms(phone, body) {
 export async function wasServiceAlertSent(sb, booking, bookingId, templateKey) {
   if (alreadySent(booking, templateKey)) return true;
   if (!sb || !bookingId) return false;
-  return await isSmsLogged(bookingId, templateKey, SMS_LOGS_NO_RETURN_DATE);
+  try {
+    const { data, error } = await sb
+      .from("sms_logs")
+      .select("id")
+      .eq("booking_id", bookingId)
+      .eq("template_key", templateKey)
+      .eq("return_date_at_send", SMS_LOGS_NO_RETURN_DATE)
+      .maybeSingle();
+    if (error) {
+      console.warn("maintenance-alerts: sms_logs read failed (non-fatal):", error.message);
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    console.warn("maintenance-alerts: sms_logs read failed (non-fatal):", err.message);
+    return false;
+  }
 }
 
 async function sendOwnerAlertEmail(subject, html) {
