@@ -63,6 +63,13 @@ const TEMPLATE_KEY_HIGH_MILEAGE   = "HIGH_DAILY_MILEAGE";
 const MAX_HIGH_MILEAGE_ALERTS     = 2;
 const HIGH_MILEAGE_COOLDOWN_MS    = 60 * 60 * 1000; // 60 minutes
 
+// Hard minimum cooldown for service alerts (warn + urgent).
+// Even if the score-based gate passes, never send the same service-alert
+// template more than once within this window.  This is a last-resort guard
+// against the scoring proximity bonus overcoming the spam penalty when a
+// rental is near its return time.
+const MAINTENANCE_HARD_COOLDOWN_MIN = 24 * 60; // 24 hours in minutes
+
 // Service definitions — intervals match lib/ai/mileage.js
 const SERVICES = [
   {
@@ -127,6 +134,7 @@ async function logServiceAlertToSupabase(sb, bookingId, templateKey, extraMetada
           booking_id:          bookingId,
           template_key:        templateKey,
           return_date_at_send: "1970-01-01",
+          sent_at:             new Date().toISOString(),
           metadata:            { priority: getSmsPriority(templateKey), ...extraMetadata },
         },
         { onConflict: "booking_id,template_key,return_date_at_send" }
@@ -463,6 +471,29 @@ export default async function handler(req, res) {
       // SCORE_THRESHOLD is sent — replacing the previous fixed-priority sort.
       const candidates = [];
 
+      // Supabase-backed dedup: fetch all service-alert sms_logs rows for this
+      // booking (no time limit) so we can guard against repeat sends even when
+      // the bookings.json smsSentAt write failed (e.g. GITHUB_TOKEN absent).
+      const supabaseAlreadySentKeys = new Set();
+      if (sb && bookingId) {
+        try {
+          const allServiceKeys = SERVICES.flatMap((s) => [keyWarn(s.type), keyUrgent(s.type)]);
+          const { data: flagRows, error: flagErr } = await sb
+            .from("sms_logs")
+            .select("template_key")
+            .eq("booking_id",          bookingId)
+            .eq("return_date_at_send", "1970-01-01")
+            .in("template_key",        allServiceKeys);
+          if (!flagErr && flagRows) {
+            for (const r of flagRows) supabaseAlreadySentKeys.add(r.template_key);
+          } else if (flagErr) {
+            console.warn(`maintenance-alerts: sms_logs dedup prefetch failed for ${bookingId} (non-fatal):`, flagErr.message);
+          }
+        } catch (flagErr) {
+          console.warn(`maintenance-alerts: sms_logs dedup prefetch failed for ${bookingId} (non-fatal):`, flagErr.message);
+        }
+      }
+
       for (const svc of SERVICES) {
         // Resolve last-service mileage for this specific service type
         const lastMi  = row[svc.col] != null
@@ -478,7 +509,7 @@ export default async function handler(req, res) {
 
         if (pct >= 1.0) {
           // Overdue (100%+) — high priority
-          if (!alreadySent(booking, kUrgent)) {
+          if (!alreadySent(booking, kUrgent) && !supabaseAlreadySentKeys.has(kUrgent)) {
             candidates.push({
               key:      kUrgent,
               template: MAINTENANCE_AVAILABILITY_URGENT,
@@ -488,7 +519,7 @@ export default async function handler(req, res) {
           }
         } else {
           // Due soon (80%–100%) — standard priority
-          if (!alreadySent(booking, kWarn)) {
+          if (!alreadySent(booking, kWarn) && !supabaseAlreadySentKeys.has(kWarn)) {
             candidates.push({
               key:      kWarn,
               template: MAINTENANCE_AVAILABILITY_REQUEST,
@@ -529,6 +560,24 @@ export default async function handler(req, res) {
         console.log(
           `maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ` +
           `proximity suppressed (${minutesToReturn !== undefined ? Math.round(minutesToReturn) : "?"} min to return)`
+        );
+        continue;
+      }
+
+      // Hard cooldown: block if the same template was sent within the last
+      // MAINTENANCE_HARD_COOLDOWN_MIN minutes, regardless of score.  This
+      // prevents the scoring proximity bonus from overcoming the spam penalty
+      // when a rental is near its return time, which would otherwise allow the
+      // same message to fire on every cron cycle.
+      if (
+        winner.ctx.sameTemplateRecentMinutes !== undefined &&
+        winner.ctx.sameTemplateRecentMinutes < MAINTENANCE_HARD_COOLDOWN_MIN
+      ) {
+        console.log(
+          `maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ` +
+          `hard cooldown active for ${winner.key} ` +
+          `(sent ${Math.round(winner.ctx.sameTemplateRecentMinutes)} min ago, ` +
+          `min=${MAINTENANCE_HARD_COOLDOWN_MIN})`
         );
         continue;
       }
@@ -636,38 +685,53 @@ export default async function handler(req, res) {
     }
 
     // ── 5. Persist dedup marks + booking patches atomically ─────────────────
-    if ((sentMarks.length > 0 || bookingUpdates.length > 0) && process.env.GITHUB_TOKEN) {
-      try {
-        await updateJsonFileWithRetry({
-          load:  loadBookings,
-          apply: (data) => {
-            // Apply dedup sentAt marks
-            for (const { vehicleId, id, key } of sentMarks) {
-              const bookings = data[vehicleId];
-              if (!Array.isArray(bookings)) continue;
-              const idx = bookings.findIndex(
-                (b) => b.bookingId === id || b.paymentIntentId === id
-              );
-              if (idx === -1) continue;
-              if (!bookings[idx].smsSentAt) bookings[idx].smsSentAt = {};
-              bookings[idx].smsSentAt[key] = new Date().toISOString();
-            }
-            // Apply booking status patches
-            for (const { vehicleId, id, patch } of bookingUpdates) {
-              const bookings = data[vehicleId];
-              if (!Array.isArray(bookings)) continue;
-              const idx = bookings.findIndex(
-                (b) => b.bookingId === id || b.paymentIntentId === id
-              );
-              if (idx === -1) continue;
-              Object.assign(bookings[idx], patch);
-            }
-          },
-          save:    saveBookings,
-          message: `maintenance-alerts: ${sentMarks.length} alert marks, ${bookingUpdates.length} booking patches`,
-        });
-      } catch (err) {
-        console.error("maintenance-alerts: failed to persist marks:", err.message);
+    if (sentMarks.length > 0 || bookingUpdates.length > 0) {
+      if (!process.env.GITHUB_TOKEN) {
+        // Without GITHUB_TOKEN the smsSentAt flags are never written to
+        // bookings.json.  The Supabase sms_logs-based dedup (supabaseAlreadySentKeys
+        // pre-flight + hard cooldown) serves as the fallback in this case, but
+        // log a clear warning so the misconfiguration is visible in cron logs.
+        console.warn(
+          "maintenance-alerts: GITHUB_TOKEN is not set — " +
+          `smsSentAt dedup marks for ${sentMarks.length} alert(s) will NOT be persisted to bookings.json. ` +
+          "Supabase sms_logs dedup is active as fallback. Set GITHUB_TOKEN to enable full dedup."
+        );
+      } else {
+        try {
+          await updateJsonFileWithRetry({
+            load:  loadBookings,
+            apply: (data) => {
+              // Apply dedup sentAt marks
+              for (const { vehicleId, id, key } of sentMarks) {
+                const bookings = data[vehicleId];
+                if (!Array.isArray(bookings)) continue;
+                const idx = bookings.findIndex(
+                  (b) => b.bookingId === id || b.paymentIntentId === id
+                );
+                if (idx === -1) {
+                  console.warn(`maintenance-alerts: booking ID ${id} not found in bookings.json for vehicle ${vehicleId} — smsSentAt[${key}] not written`);
+                  continue;
+                }
+                if (!bookings[idx].smsSentAt) bookings[idx].smsSentAt = {};
+                bookings[idx].smsSentAt[key] = new Date().toISOString();
+              }
+              // Apply booking status patches
+              for (const { vehicleId, id, patch } of bookingUpdates) {
+                const bookings = data[vehicleId];
+                if (!Array.isArray(bookings)) continue;
+                const idx = bookings.findIndex(
+                  (b) => b.bookingId === id || b.paymentIntentId === id
+                );
+                if (idx === -1) continue;
+                Object.assign(bookings[idx], patch);
+              }
+            },
+            save:    saveBookings,
+            message: `maintenance-alerts: ${sentMarks.length} alert marks, ${bookingUpdates.length} booking patches`,
+          });
+        } catch (err) {
+          console.error("maintenance-alerts: failed to persist marks:", err.message);
+        }
       }
     }
 
