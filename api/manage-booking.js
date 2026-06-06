@@ -995,6 +995,8 @@ export default async function handler(req, res) {
     const sb = getSupabaseAdmin();
     if (!sb) return res.status(503).json({ error: "Database unavailable" });
 
+    const shouldPersistProtectionPlan = !row.__selectFallbackUsed;
+
     const applyChangeUpdate = {
       vehicle_id:          normalizeVehicleId(targetVehicleUiId),
       pickup_date:         newPickupDate,
@@ -1005,10 +1007,12 @@ export default async function handler(req, res) {
       remaining_balance:   pricing.newBalanceDue,
       change_count:        changeCount + 1,
       balance_payment_link: newBalanceLink,
-      has_protection_plan: hasProtection,
-      protection_plan_tier: hasProtection ? (tier || null) : null,
       updated_at:          new Date().toISOString(),
     };
+    if (shouldPersistProtectionPlan) {
+      applyChangeUpdate.has_protection_plan = hasProtection;
+      applyChangeUpdate.protection_plan_tier = hasProtection ? (tier || null) : null;
+    }
 
     let { error: sbErr } = await sb
       .from("bookings")
