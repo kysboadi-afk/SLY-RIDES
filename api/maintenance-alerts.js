@@ -111,7 +111,7 @@ function normalizeBookingIdentity(value) {
   return normalized ? normalized : null;
 }
 
-function resolveBookingIdentity(row = {}) {
+export function resolveBookingIdentity(row = {}) {
   return (
     normalizeBookingIdentity(row.bookingId) ||
     normalizeBookingIdentity(row.booking_ref) ||
@@ -122,7 +122,7 @@ function resolveBookingIdentity(row = {}) {
   );
 }
 
-function bookingMatchesIdentity(booking, bookingId) {
+export function bookingMatchesIdentity(booking, bookingId) {
   const normalized = normalizeBookingIdentity(bookingId);
   if (!normalized || !booking) return false;
   return [
