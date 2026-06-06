@@ -105,6 +105,35 @@ const keyUrgent = (type) => `maint_${type}_urgent`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function normalizeBookingIdentity(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
+
+function resolveBookingIdentity(row = {}) {
+  return (
+    normalizeBookingIdentity(row.bookingId) ||
+    normalizeBookingIdentity(row.booking_ref) ||
+    normalizeBookingIdentity(row.booking_ref_input) ||
+    normalizeBookingIdentity(row.paymentIntentId) ||
+    normalizeBookingIdentity(row.payment_intent_id) ||
+    normalizeBookingIdentity(row.id)
+  );
+}
+
+function bookingMatchesIdentity(booking, bookingId) {
+  const normalized = normalizeBookingIdentity(bookingId);
+  if (!normalized || !booking) return false;
+  return [
+    booking.bookingId,
+    booking.booking_ref,
+    booking.paymentIntentId,
+    booking.payment_intent_id,
+    booking.id,
+  ].some((candidate) => normalizeBookingIdentity(candidate) === normalized);
+}
+
 function alreadySent(booking, key) {
   return !!(booking.smsSentAt && booking.smsSentAt[key]);
 }
@@ -338,7 +367,7 @@ export default async function handler(req, res) {
     try {
       const { data: activeRows, error: activeErr } = await sb
         .from("bookings")
-        .select("booking_ref, vehicle_id, return_date, return_time, oil_check_required, oil_status, oil_check_last_request, customers ( name, phone )")
+        .select("id, booking_ref, payment_intent_id, vehicle_id, return_date, return_time, oil_check_required, oil_status, oil_check_last_request, customers ( name, phone )")
         .in("status", ["active", "active_rental"])
         .in("vehicle_id", trackedIds);
       if (activeErr) {
@@ -356,7 +385,10 @@ export default async function handler(req, res) {
       }
       for (const r of (activeRows || [])) {
         activeBookingByVehicle[r.vehicle_id] = {
-          bookingId:           r.booking_ref || null,
+          bookingId:           resolveBookingIdentity(r),
+          bookingRef:          normalizeBookingIdentity(r.booking_ref),
+          paymentIntentId:     normalizeBookingIdentity(r.payment_intent_id),
+          id:                  normalizeBookingIdentity(r.id),
           vehicleId:           r.vehicle_id,
           vehicleName:         r.vehicle_id,  // filled from trackedVehicles below
           name:                r.customers?.name  || "",
@@ -396,9 +428,10 @@ export default async function handler(req, res) {
         for (const [vid, bookingObj] of Object.entries(activeBookingByVehicle)) {
           const jsonBookings = jsonData[vid];
           if (!Array.isArray(jsonBookings)) continue;
+          const bookingIdentity = resolveBookingIdentity(bookingObj);
           const jsonActive = jsonBookings.find(
             (b) => b.status === "active_rental" &&
-              (!bookingObj.bookingId || b.bookingId === bookingObj.bookingId || b.paymentIntentId === bookingObj.bookingId)
+              (!bookingIdentity || bookingMatchesIdentity(b, bookingIdentity))
           );
           if (jsonActive?.smsSentAt) {
             activeBookingByVehicle[vid].smsSentAt = jsonActive.smsSentAt;
@@ -455,7 +488,11 @@ export default async function handler(req, res) {
       }
       // ── End suppression ────────────────────────────────────────────────────
 
-      const bookingId = booking.bookingId || booking.paymentIntentId;
+      const bookingId = resolveBookingIdentity(booking);
+      if (!bookingId) {
+        console.warn(`maintenance-alerts: SKIP vehicle ${vid}: active booking has no stable booking identifier; dedupe cannot be guaranteed`);
+        continue;
+      }
       const phone     = booking.phone;
 
       // ── Compute time-proximity context ────────────────────────────────────
@@ -650,7 +687,11 @@ export default async function handler(req, res) {
           if (dailyMiles < DRIVER_MILEAGE_THRESHOLD_DAILY) continue;
 
           const booking     = activeBookingByVehicle[vid];
-          const bookingId   = booking.bookingId || booking.paymentIntentId;
+          const bookingId   = resolveBookingIdentity(booking);
+          if (!bookingId) {
+            console.warn(`maintenance-alerts: SKIP high-mileage alert for vehicle ${vid}: active booking has no stable booking identifier`);
+            continue;
+          }
           const driverName  = booking.name  || "Unknown driver";
           const driverPhone = booking.phone || "N/A";
           const vehicleName = trackedVehicles.find((v) => v.vehicle_id === vid)?.data?.vehicle_name || vid;
@@ -717,7 +758,7 @@ export default async function handler(req, res) {
                 const bookings = data[vehicleId];
                 if (!Array.isArray(bookings)) continue;
                 const idx = bookings.findIndex(
-                  (b) => b.bookingId === id || b.paymentIntentId === id
+                  (b) => bookingMatchesIdentity(b, id)
                 );
                 if (idx === -1) {
                   console.warn(`maintenance-alerts: booking ID ${id} not found in bookings.json for vehicle ${vehicleId} — smsSentAt[${key}] not written`);
@@ -731,7 +772,7 @@ export default async function handler(req, res) {
                 const bookings = data[vehicleId];
                 if (!Array.isArray(bookings)) continue;
                 const idx = bookings.findIndex(
-                  (b) => b.bookingId === id || b.paymentIntentId === id
+                  (b) => bookingMatchesIdentity(b, id)
                 );
                 if (idx === -1) continue;
                 Object.assign(bookings[idx], patch);

@@ -54,6 +54,34 @@ const SERVICE_LABELS = {
   tires:  "tire replacement",
 };
 
+function normalizeBookingIdentity(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
+
+function resolveBookingIdentity(row = {}) {
+  return (
+    normalizeBookingIdentity(row.bookingId) ||
+    normalizeBookingIdentity(row.booking_ref) ||
+    normalizeBookingIdentity(row.paymentIntentId) ||
+    normalizeBookingIdentity(row.payment_intent_id) ||
+    normalizeBookingIdentity(row.id)
+  );
+}
+
+function bookingMatchesIdentity(booking, bookingId) {
+  const normalized = normalizeBookingIdentity(bookingId);
+  if (!normalized || !booking) return false;
+  return [
+    booking.bookingId,
+    booking.booking_ref,
+    booking.paymentIntentId,
+    booking.payment_intent_id,
+    booking.id,
+  ].some((candidate) => normalizeBookingIdentity(candidate) === normalized);
+}
+
 function scheduleUrl(vehicleId, serviceType) {
   return `${SITE_BASE}/maintenance-schedule.html?vehicleId=${encodeURIComponent(vehicleId)}&serviceType=${encodeURIComponent(serviceType)}`;
 }
@@ -169,14 +197,17 @@ export default async function handler(req, res) {
     try {
       const { data: activeRows, error: activeErr } = await sb
         .from("bookings")
-        .select("booking_ref, vehicle_id, customers ( name, phone )")
+        .select("id, booking_ref, payment_intent_id, vehicle_id, customers ( name, phone )")
         .in("status", ["active", "active_rental"])
         .in("vehicle_id", overdueVehicleIds);
       if (activeErr) throw activeErr;
       usedSupabase = true;
       for (const r of (activeRows || [])) {
         activeBookingByVehicle[r.vehicle_id] = {
-          bookingId:   r.booking_ref || null,
+          bookingId:   resolveBookingIdentity(r),
+          bookingRef:  normalizeBookingIdentity(r.booking_ref),
+          paymentIntentId: normalizeBookingIdentity(r.payment_intent_id),
+          id:          normalizeBookingIdentity(r.id),
           vehicleId:   r.vehicle_id,
           vehicleName: r.vehicle_id, // overlaid from JSON below when available
           name:        r.customers?.name  || "",
@@ -207,9 +238,10 @@ export default async function handler(req, res) {
         for (const [vid, bookingObj] of Object.entries(activeBookingByVehicle)) {
           const jsonBookings = jsonData[vid];
           if (!Array.isArray(jsonBookings)) continue;
+          const bookingIdentity = resolveBookingIdentity(bookingObj);
           const jsonActive = jsonBookings.find(
             (b) => b.status === "active_rental" &&
-              (!bookingObj.bookingId || b.bookingId === bookingObj.bookingId || b.paymentIntentId === bookingObj.bookingId)
+              (!bookingIdentity || bookingMatchesIdentity(b, bookingIdentity))
           );
           if (jsonActive?.smsSentAt) {
             activeBookingByVehicle[vid].smsSentAt = jsonActive.smsSentAt;
@@ -269,7 +301,7 @@ export default async function handler(req, res) {
       const phone        = booking?.phone      || null;
       const driverName   = booking?.name       || "Driver";
       const vehicleName  = booking?.vehicleName || vid;
-      const bookingId    = booking?.bookingId   || booking?.paymentIntentId || apptBookingId;
+      const bookingId    = resolveBookingIdentity(booking) || normalizeBookingIdentity(apptBookingId);
       const missedKey    = `maint_${serviceType}_missed`;
       const scheduledDt  = formatDateTime(scheduledAt);
       const reschedUrl   = scheduleUrl(vid, serviceType);
@@ -397,7 +429,7 @@ ${totalMissed > 1 ? `<p>⚠️ <strong>This driver has now missed ${totalMissed}
               const bookings = data[vehicleId];
               if (!Array.isArray(bookings)) continue;
               const idx = bookings.findIndex(
-                (b) => b.bookingId === id || b.paymentIntentId === id
+                (b) => bookingMatchesIdentity(b, id)
               );
               if (idx === -1) continue;
               if (!bookings[idx].smsSentAt) bookings[idx].smsSentAt = {};
@@ -407,7 +439,7 @@ ${totalMissed > 1 ? `<p>⚠️ <strong>This driver has now missed ${totalMissed}
               const bookings = data[vehicleId];
               if (!Array.isArray(bookings)) continue;
               const idx = bookings.findIndex(
-                (b) => b.bookingId === id || b.paymentIntentId === id
+                (b) => bookingMatchesIdentity(b, id)
               );
               if (idx === -1) continue;
               Object.assign(bookings[idx], patch);
