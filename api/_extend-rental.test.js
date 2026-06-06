@@ -1050,6 +1050,36 @@ test("extend-rental: no waiver when late_fee_waived_amount is absent from Supaba
   assert.equal(res._body.lateFeeWaived, 0, "lateFeeWaived must default to 0 when no waiver is set");
 });
 
+test("extend-rental: dismissed late fee status does not re-charge late fee at extension checkout", async () => {
+  capturedStripeParams = null;
+  const active = makeActiveBooking();
+  mockBookings = { camry: [active] };
+
+  sbClient = makeSupabaseClient({
+    rows: [{
+      booking_ref: "bk-camry-active-001",
+      return_date: "2026-04-30",
+      return_time: "17:00:00",
+      status: "active_rental",
+      late_fee_status: "dismissed",
+      late_fee_amount: null,
+      late_fee_waived_amount: null,
+    }],
+  });
+
+  const res = makeRes();
+  await withMockedNow(FIVE_DAY_OVERDUE_NOW, async () => {
+    await handler(makeReq({
+      vehicleId: "camry",
+      email: "alice@example.com",
+      newReturnDate: "2026-05-05",
+    }), res);
+  });
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.lateFeeIncluded, 0, "late fee should stay waived/dismissed during extension checkout");
+});
+
 // ── Phase 2: Risk gate integration tests ──────────────────────────────────────
 
 test("extend-rental: Phase 2 risk gate blocks partial payment when evaluateExtensionRisk denies", async () => {

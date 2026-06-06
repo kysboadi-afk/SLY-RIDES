@@ -120,6 +120,13 @@ function clearVerifyState(key) {
   verifyAttempts.delete(key);
 }
 
+function resolveVisibleLateFeeAmount(lateFeeStatus, lateFeeAmount) {
+  const normalizedStatus = String(lateFeeStatus || "").trim().toLowerCase();
+  if (normalizedStatus === "dismissed") return null;
+  const parsedAmount = Number(lateFeeAmount || 0);
+  return parsedAmount > 0 ? parsedAmount : null;
+}
+
 function renterOwnsBooking(row, claims) {
   if (!claims) return true;
   const claimBookingRef = String(claims.booking_ref || "").trim().toLowerCase();
@@ -704,7 +711,7 @@ export default async function handler(req, res) {
       isOverdueStage: lifecycle.isOverdue,
       isPickupDueStage: lifecycle.isManualPickup && lifecycle.lifecycleState === "pickup_due",
       lateFeeStatus: row.late_fee_status || null,
-      lateFeeAmount: Number(row.late_fee_amount || 0) > 0 ? Number(row.late_fee_amount) : null,
+      lateFeeAmount: resolveVisibleLateFeeAmount(row.late_fee_status, row.late_fee_amount),
       extensionRiskOverride: row.extension_risk_override || null,
       currentAgreement: agreementSummary.currentAgreement,
       agreements: agreementSummary.agreements,

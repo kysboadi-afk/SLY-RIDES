@@ -1072,7 +1072,11 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const statusKey = normalizeStatusKey(b.status);
     const financialSnapshot = deriveDisplayedFinancials(b, ledgerSummary, statusKey);
     const { total, paid, balance, ledgerSummaryUsable } = financialSnapshot;
-    const lateFee   = Number(b.lateFeeAmount || 0);
+    const lateFeeStatus = String(b.lateFeeStatus || "").trim().toLowerCase();
+    const lateFeeRaw = Number(b.lateFeeAmount || 0);
+    const lateFee = (lateFeeStatus === "assessed" || lateFeeStatus === "pending_collection") && lateFeeRaw > 0
+      ? lateFeeRaw
+      : 0;
     const displayTotal = total + lateFee;
     const paidPct   = displayTotal > 0 ? Math.min(100, Math.round((paid / displayTotal) * 100)) : (balance === 0 ? 100 : 0);
     const paymentState = derivePaymentUiState({ booking: b, statusKey, total: displayTotal, paid, balance });
@@ -1195,8 +1199,8 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     const extensionEligible = ["active", "active_rental", "overdue", "extended"].includes(statusKey);
     const extensionHref = buildExtensionHref(b);
     // Account-state-aware extension section: derive messaging from financial state fields.
-    const extLateFeeStatus = String(b.lateFeeStatus || "").trim().toLowerCase();
-    const extLateFeeAmount = Number(b.lateFeeAmount || 0);
+    const extLateFeeStatus = lateFeeStatus;
+    const extLateFeeAmount = lateFee;
     const extRiskOverride = String(b.extensionRiskOverride || "").trim().toLowerCase();
     const extPlanStatus = String(plan?.status || "").trim().toLowerCase();
     const extIsOverdue = statusKey === "overdue";
