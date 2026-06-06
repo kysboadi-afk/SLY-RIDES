@@ -25,7 +25,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { hasDateTimeOverlap } from "./_availability.js";
 import { updateBooking, loadBookings } from "./_bookings.js";
 import { updateJsonFileWithRetry } from "./_github-retry.js";
-import { autoUpsertBooking, writeAuditLog } from "./_booking-automation.js";
+import { autoUpsertBooking, writeAuditLog, autoCreateBlockedDate, extendBlockedDateForBooking } from "./_booking-automation.js";
 import { normalizeVehicleId, uiVehicleId } from "./_vehicle-id.js";
 import { getVehicleById } from "./_vehicles.js";
 import { fetchPaymentPlanSummary } from "./_payment-plan-summary.js";
@@ -997,11 +997,17 @@ export default async function handler(req, res) {
       .eq("booking_ref", bookingId);
 
     if (sbErr) {
-      console.error("manage-booking apply_change Supabase update error:", sbErr.message);
+      console.error(
+        "manage-booking apply_change Supabase update error:",
+        sbErr.message,
+        "| code:", sbErr.code,
+        "| details:", sbErr.details,
+        "| hint:", sbErr.hint
+      );
       return res.status(500).json({ error: "Failed to save booking change" });
     }
 
-    // Update booked-dates.json
+    // Update booked-dates.json (disabled, Phase 4 — no-op)
     try {
       await updateBookedDates(
         targetVehicleUiId,
@@ -1011,6 +1017,31 @@ export default async function handler(req, res) {
       );
     } catch (dateErr) {
       console.error("manage-booking apply_change booked-dates update error (non-fatal):", dateErr.message);
+    }
+
+    // Sync blocked_dates in Supabase (Phase 4: primary availability source).
+    // extendBlockedDateForBooking updates end_date; also update start_date when
+    // the pickup date changed (e.g., renter shortens the rental window).
+    try {
+      await extendBlockedDateForBooking(
+        normalizeVehicleId(targetVehicleUiId),
+        bookingId,
+        newReturnDate,
+        fReturnTime || null
+      );
+      if (newPickupDate !== row.pickup_date && sb) {
+        const { error: startUpdateErr } = await sb
+          .from("blocked_dates")
+          .update({ start_date: newPickupDate })
+          .eq("vehicle_id", normalizeVehicleId(targetVehicleUiId))
+          .eq("booking_ref", bookingId)
+          .eq("reason", "booking");
+        if (startUpdateErr) {
+          console.warn("manage-booking apply_change blocked_dates start_date update failed (non-fatal):", startUpdateErr.message);
+        }
+      }
+    } catch (blockedErr) {
+      console.error("manage-booking apply_change blocked_dates sync error (non-fatal):", blockedErr.message);
     }
 
     // Update bookings.json (legacy store)
