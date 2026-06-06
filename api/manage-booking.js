@@ -75,11 +75,14 @@ export function isMissingColumnCompatError(err, columnName) {
   if (!err) return false;
   const code = String(err.code || "").trim();
   const message = String(err.message || "").toLowerCase();
+  const details = String(err.details || "").toLowerCase();
+  const hint = String(err.hint || "").toLowerCase();
+  const fullText = `${message}\n${details}\n${hint}`;
   const target = String(columnName || "").trim().toLowerCase();
   if (!target) return false;
-  if (code === POSTGRES_UNDEFINED_COLUMN_ERROR && message.includes(target)) return true;
-  if ((code === POSTGREST_SCHEMA_CACHE_ERROR || code === POSTGREST_EMBEDDED_SCHEMA_ERROR) && message.includes(target)) return true;
-  return message.includes("schema cache") && message.includes(target);
+  if (code === POSTGRES_UNDEFINED_COLUMN_ERROR && fullText.includes(target)) return true;
+  if ((code === POSTGREST_SCHEMA_CACHE_ERROR || code === POSTGREST_EMBEDDED_SCHEMA_ERROR) && fullText.includes(target)) return true;
+  return fullText.includes("schema cache") && fullText.includes(target);
 }
 
 // Best-effort in-memory rate limiting for booking verification attempts.

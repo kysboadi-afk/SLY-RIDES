@@ -215,6 +215,16 @@ test("manage-booking compatibility matcher detects schema-cache missing column e
   assert.equal(isMissingColumnCompatError(err, "protection_plan_tier"), false);
 });
 
+test("manage-booking compatibility matcher checks message, details, and hint fields", () => {
+  const err = {
+    code: "PGRST204",
+    message: "Could not find the 'bookings' relation in the schema cache",
+    details: "Could not find the 'protection_plan_tier' column of 'bookings' in the schema cache",
+    hint: null,
+  };
+  assert.equal(isMissingColumnCompatError(err, "protection_plan_tier"), true);
+});
+
 test("manage-booking get suppresses dismissed late fee amount from renter payload", async () => {
   const bookingRow = {
     id: 3,
