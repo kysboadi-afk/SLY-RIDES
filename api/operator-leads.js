@@ -240,6 +240,8 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
   const {
     name,
+    first_name: submittedFirstName,
+    last_name: submittedLastName,
     email,
     phone,
     fleetSize,
@@ -253,7 +255,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Submission rejected." });
   }
 
-  const { firstName, lastName } = splitLeadName(name);
+  const normalizedSubmittedFirstName = normalizeText(submittedFirstName, 160);
+  const normalizedSubmittedLastName = normalizeText(submittedLastName, 160);
+  const normalizedSubmittedName = normalizeText(name, 160)
+    || [normalizedSubmittedFirstName, normalizedSubmittedLastName].filter(Boolean).join(" ");
+  const { firstName: derivedFirstName, lastName: derivedLastName } = splitLeadName(normalizedSubmittedName);
+  const firstName = normalizedSubmittedFirstName || derivedFirstName;
+  const lastName = normalizedSubmittedLastName || derivedLastName;
+  const legacyName = normalizeText(
+    [normalizedSubmittedName, firstName && lastName ? `${firstName} ${lastName}` : ""].find(Boolean),
+    160
+  );
   const normalizedEmail = normalizeText(email, 320).toLowerCase();
   const normalizedPhone = normalizeText(phone, 64);
   const normalizedFleetSize = normalizeText(fleetSize, 64);
@@ -420,6 +432,7 @@ export default async function handler(req, res) {
   const payload = {
     first_name: firstName,
     last_name: lastName,
+    name: legacyName,
     email: normalizedEmail,
     phone: normalizedPhone,
     fleet_size: normalizedFleetSize,
@@ -435,7 +448,7 @@ export default async function handler(req, res) {
     onboarding_progress: withFunnelTimestamp({}, "lead_submitted_at", leadSubmittedAt),
   };
 
-  const { data, error } = await logSupabaseCall("lead_insert", supabase
+  let { data, error } = await logSupabaseCall("lead_insert", supabase
     .from("operator_leads")
     .insert(payload)
     .select("id, status, created_at, funnel_stage, onboarding_progress, notification_status, notification_channel, notification_sent_at, notification_error_reason, notification_attempt_count")
@@ -445,6 +458,21 @@ export default async function handler(req, res) {
     source: normalizedSource,
     submissionHash,
   });
+
+  if (error && isMissingColumnError(error, "name")) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.name;
+    ({ data, error } = await logSupabaseCall("lead_insert_without_legacy_name", supabase
+      .from("operator_leads")
+      .insert(fallbackPayload)
+      .select("id, status, created_at, funnel_stage, onboarding_progress, notification_status, notification_channel, notification_sent_at, notification_error_reason, notification_attempt_count")
+      .single(), {
+      table: "operator_leads",
+      payloadKeys: Object.keys(fallbackPayload),
+      source: normalizedSource,
+      submissionHash,
+    }));
+  }
 
   if (error) {
     console.error("operator-leads insert failed:", {

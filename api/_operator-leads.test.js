@@ -9,6 +9,7 @@ let auditRows = [];
 let duplicateLead = null;
 let leadCounter = 0;
 let forcedInsertError = null;
+let rejectLegacyNameInsert = false;
 
 mock.module("nodemailer", {
   defaultExport: {
@@ -68,6 +69,15 @@ function validBody(overrides = {}) {
   };
 }
 
+function validSplitBody(overrides = {}) {
+  return validBody({
+    name: undefined,
+    first_name: "Jordan",
+    last_name: "Fleet",
+    ...overrides,
+  });
+}
+
 function createSupabaseClient() {
   const leads = [];
   return {
@@ -99,6 +109,16 @@ function createSupabaseClient() {
               select() {
                 return {
                   async single() {
+                    if (rejectLegacyNameInsert && Object.prototype.hasOwnProperty.call(payload, "name")) {
+                      return {
+                        data: null,
+                        error: {
+                          message: 'column "name" of relation "operator_leads" does not exist',
+                          code: "42703",
+                          hint: "Run migration 0179 if legacy name compatibility is still required.",
+                        },
+                      };
+                    }
                     if (forcedInsertError) {
                       return { data: null, error: forcedInsertError };
                     }
@@ -151,6 +171,7 @@ beforeEach(() => {
   nextSendMailError = null;
   leadCounter = 0;
   forcedInsertError = null;
+  rejectLegacyNameInsert = false;
   process.env.SMTP_HOST = "smtp.example.test";
   process.env.SMTP_PORT = "587";
   process.env.SMTP_USER = "notify@example.test";
@@ -204,6 +225,7 @@ test("stores operator lead, dispatches notification, and returns status metadata
   assert.equal(insertCalls[0].table, "operator_leads");
   assert.equal(insertCalls[0].payload.first_name, "Jordan");
   assert.equal(insertCalls[0].payload.last_name, "Fleet");
+  assert.equal(insertCalls[0].payload.name, "Jordan Fleet");
   assert.equal(insertCalls[0].payload.email, "jordan@example.com");
   assert.equal(insertCalls[0].payload.fleet_size, "4-10 vehicles");
   assert.equal(insertCalls[0].payload.source, "fleet_control_early_access");
@@ -212,6 +234,30 @@ test("stores operator lead, dispatches notification, and returns status metadata
   assert.match(insertCalls[0].payload.notes, /fleet_size_label=4-10 vehicles/);
   assert.equal(sentNotifications.length, 1);
   assert.equal(auditRows.length >= 2, true);
+});
+
+test("accepts split-name payloads and fills the legacy name column", async () => {
+  const res = makeRes();
+  await handler(makeReq("POST", validSplitBody()), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(insertCalls.length, 1);
+  assert.equal(insertCalls[0].payload.first_name, "Jordan");
+  assert.equal(insertCalls[0].payload.last_name, "Fleet");
+  assert.equal(insertCalls[0].payload.name, "Jordan Fleet");
+});
+
+test("retries insert without legacy name when the column is absent", async () => {
+  rejectLegacyNameInsert = true;
+  const res = makeRes();
+  await handler(makeReq("POST", validSplitBody()), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(insertCalls.length, 2);
+  assert.equal(insertCalls[0].payload.name, "Jordan Fleet");
+  assert.equal("name" in insertCalls[1].payload, false);
+  assert.equal(insertCalls[1].payload.first_name, "Jordan");
+  assert.equal(insertCalls[1].payload.last_name, "Fleet");
 });
 
 test("persists failed notification outcome when dispatch fails", async () => {
