@@ -46,8 +46,8 @@ import {
 } from "./_booking-automation.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { persistBooking } from "./_booking-pipeline.js";
-import { CARS, computeRentalDays, getAllVehicleIds, getActiveVehicleIds } from "./_pricing.js";
-import { loadPricingSettings, computeBreakdownLinesFromSettings } from "./_settings.js";
+import { CARS, computeRentalDays, getAllVehicleIds, getActiveVehicleIds, getVehiclePricing, computeAmountFromPricing } from "./_pricing.js";
+import { loadPricingSettings, computeBreakdownLinesFromSettings, applyTax, computeDppCostFromSettings } from "./_settings.js";
 import { generateRentalAgreementPdf } from "./_rental-agreement-pdf.js";
 import { buildUnifiedConfirmationEmail, buildDocumentNotes, isWebsitePaymentMethod } from "./_booking-confirmation-template.js";
 import { normalizeVehicleId, uiVehicleId } from "./_vehicle-id.js";
@@ -926,7 +926,7 @@ export default withAdminAuth(async function handler(req, res) {
             // Try by booking_ref first
             let { data: sbCheck } = await sbVal
               .from("bookings")
-              .select("id, booking_ref, payment_intent_id, vehicle_id, pickup_date, return_date, pickup_time, return_time, status, payment_status, total_price, deposit_paid, notes, payment_method")
+              .select("id, booking_ref, payment_intent_id, vehicle_id, pickup_date, return_date, pickup_time, return_time, status, payment_status, total_price, deposit_paid, notes, payment_method, has_protection_plan, protection_plan_tier")
               .eq("vehicle_id", normalizeVehicleId(vehicleId))
               .eq("booking_ref", bookingId)
               .maybeSingle();
@@ -936,7 +936,7 @@ export default withAdminAuth(async function handler(req, res) {
               if (!isNaN(numId)) {
                 const { data: sbCheckById } = await sbVal
                   .from("bookings")
-                  .select("id, booking_ref, payment_intent_id, vehicle_id, pickup_date, return_date, pickup_time, return_time, status, payment_status, total_price, deposit_paid, notes, payment_method")
+                  .select("id, booking_ref, payment_intent_id, vehicle_id, pickup_date, return_date, pickup_time, return_time, status, payment_status, total_price, deposit_paid, notes, payment_method, has_protection_plan, protection_plan_tier")
                   .eq("vehicle_id", normalizeVehicleId(vehicleId))
                   .eq("id", numId)
                   .maybeSingle();
@@ -1077,6 +1077,51 @@ export default withAdminAuth(async function handler(req, res) {
               hasTotalPriceUpdate ? Number(safeUpdates.totalPrice || 0) : currentTotalPrice
             );
             const nextRemainingBalance = roundMoney(Math.max(0, nextTotalPrice - nextAmountPaid));
+
+            // Auto-reprice when admin changes pickup/return dates without explicitly
+            // setting a new total price. This keeps total_price and remaining_balance
+            // in sync after a date-only correction.
+            let autoRepricedTotal = null;
+            let autoRepricedBalance = null;
+            if ((hasPickupUpdate || hasReturnUpdate) && !hasTotalPriceUpdate) {
+              try {
+                const effectiveVehicleId = safeUpdates.vehicleId
+                  || (sbOnlyRow ? sbOnlyRow.vehicle_id : null)
+                  || (currentBookingSnapshot?.vehicleId ?? null);
+                const effectivePickup = safeUpdates.pickupDate
+                  || (sbOnlyRow ? sbOnlyRow.pickup_date : null)
+                  || (currentBookingSnapshot?.pickupDate ?? null);
+                const effectiveReturn = safeUpdates.returnDate
+                  || (sbOnlyRow ? sbOnlyRow.return_date : null)
+                  || (currentBookingSnapshot?.returnDate ?? null);
+                const hasPlan = !!(sbOnlyRow
+                  ? sbOnlyRow.has_protection_plan
+                  : (currentBookingSnapshot?.hasProtectionPlan ?? false));
+                const planTier = (sbOnlyRow
+                  ? sbOnlyRow.protection_plan_tier
+                  : (currentBookingSnapshot?.protectionPlanTier ?? null)) || null;
+                if (effectiveVehicleId && effectivePickup && effectiveReturn) {
+                  const repriceSettings = await loadPricingSettings();
+                  const pricing = await getVehiclePricing(sbInstance, effectiveVehicleId);
+                  const days = computeRentalDays(effectivePickup, effectiveReturn);
+                  const rentalCost = computeAmountFromPricing(pricing, days);
+                  const dppCost = hasPlan ? computeDppCostFromSettings(days, planTier) : 0;
+                  autoRepricedTotal = roundMoney(applyTax(rentalCost + dppCost, repriceSettings));
+                  autoRepricedBalance = roundMoney(Math.max(0, autoRepricedTotal - nextAmountPaid));
+                  console.log("[v2-bookings] auto-repriced on date change:", {
+                    vehicleId: effectiveVehicleId, days,
+                    newTotal: autoRepricedTotal, newBalance: autoRepricedBalance,
+                  });
+                }
+              } catch (repriceErr) {
+                console.warn("[v2-bookings] auto-reprice on date change failed (non-fatal):", repriceErr.message);
+              }
+            }
+            // Propagate auto-repriced values to safeUpdates so legacy bookings.json
+            // stays in sync when the booking also exists there.
+            if (autoRepricedTotal !== null) {
+              safeUpdates.totalPrice = autoRepricedTotal;
+            }
             const sbPayload = {
               ...(dbStatus ? { status: dbStatus } : {}),
               updated_at: safeUpdates.updatedAt,
@@ -1092,8 +1137,8 @@ export default withAdminAuth(async function handler(req, res) {
               ...(safeUpdates.pickupDate !== undefined ? { pickup_date: safeUpdates.pickupDate } : {}),
               ...(safeUpdates.pickupTime !== undefined ? { pickup_time: parseTime12h(safeUpdates.pickupTime) } : {}),
               ...(hasAmountPaidUpdate ? { deposit_paid: nextAmountPaid } : {}),
-              ...(hasTotalPriceUpdate ? { total_price: nextTotalPrice } : {}),
-              ...((hasAmountPaidUpdate || hasTotalPriceUpdate) ? { remaining_balance: nextRemainingBalance } : {}),
+              ...(hasTotalPriceUpdate ? { total_price: nextTotalPrice } : (autoRepricedTotal !== null ? { total_price: autoRepricedTotal } : {})),
+              ...((hasAmountPaidUpdate || hasTotalPriceUpdate) ? { remaining_balance: nextRemainingBalance } : (autoRepricedBalance !== null ? { remaining_balance: autoRepricedBalance } : {})),
               ...(safeUpdates.paymentStatus !== undefined ? { payment_status: safeUpdates.paymentStatus } : {}),
               ...(safeUpdates.paymentMethod !== undefined ? { payment_method: safeUpdates.paymentMethod } : {}),
               ...(safeUpdates.vehicleId !== undefined ? { vehicle_id: safeUpdates.vehicleId } : {}),
@@ -1545,6 +1590,28 @@ export default withAdminAuth(async function handler(req, res) {
           await blockBookedDates(updatedBooking.vehicleId, updatedBooking.pickupDate, updatedBooking.returnDate).catch((err) => {
             console.warn("v2-bookings: blockBookedDates on returnDate update failed (non-fatal):", err.message);
           });
+        }
+        // Also update start_date in blocked_dates when the pickup date changes.
+        if (safeUpdates.pickupDate && updatedBooking.vehicleId && (updatedBooking.bookingId || null) && sbInstance) {
+          try {
+            const normalizedVehicleIdForBlock = normalizeVehicleId(updatedBooking.vehicleId);
+            const bookingRefForBlock = updatedBooking.bookingId || null;
+            if (normalizedVehicleIdForBlock && bookingRefForBlock) {
+              const { error: startDateUpdateErr } = await sbInstance
+                .from("blocked_dates")
+                .update({ start_date: safeUpdates.pickupDate })
+                .eq("vehicle_id", normalizedVehicleIdForBlock)
+                .eq("booking_ref", bookingRefForBlock)
+                .eq("reason", "booking");
+              if (startDateUpdateErr) {
+                console.warn("[v2-bookings] blocked_dates start_date update failed (non-fatal):", startDateUpdateErr.message);
+              } else {
+                console.log("[v2-bookings] blocked_dates start_date updated to", safeUpdates.pickupDate, "for", bookingRefForBlock);
+              }
+            }
+          } catch (startDateErr) {
+            console.warn("[v2-bookings] blocked_dates start_date update threw (non-fatal):", startDateErr.message);
+          }
         }
       }
       if (
