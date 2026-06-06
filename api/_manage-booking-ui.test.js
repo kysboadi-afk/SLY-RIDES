@@ -745,6 +745,27 @@ test("extension-account-state: overdue renter with active late fee shows fee amo
   assert.match(ctaNote.textContent, /late fees/, "note must mention late fees");
 });
 
+test("extension-account-state: dismissed late fee is not shown in overdue dashboard messaging", async () => {
+  const document = await bootDashboard({
+    bookingPayload: baseBooking({
+      status: "overdue",
+      paymentStatus: "partial",
+      balanceDue: 420,
+      paymentLifecycleState: "overdue",
+      lateFeeStatus: "dismissed",
+      lateFeeAmount: 75,
+    }),
+    ledgerPayload: EMPTY_LEDGER,
+    agreementPayload: {},
+    vehiclesPayload: [{ vehicle_id: "camry", vehicle_name: "Camry 2012" }],
+  });
+
+  const ctaNote = document.getElementById("extension-cta-note");
+  assert.doesNotMatch(ctaNote.textContent, /\$75\.00/, "dismissed late fee must not be shown");
+  assert.doesNotMatch(ctaNote.textContent, /late fees/i, "dismissed late fee must not be referenced");
+
+});
+
 test("extension-account-state: payment plan defaulted shows manual review warning", async () => {
   const document = await bootDashboard({
     bookingPayload: baseBooking({
