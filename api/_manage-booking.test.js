@@ -30,13 +30,13 @@ mock.module("./_manage-booking-token.js", {
 
 mock.module("./_vehicles.js", {
   namedExports: {
-    getVehicleById: async () => ({ id: "camry", name: "Camry 2012" }),
+    getVehicleById: async () => ({ id: "camry", vehicleId: "camry", name: "Camry 2012" }),
     loadVehicles: async () => [],
     saveVehicles: async () => {},
   },
 });
 
-const { default: handler } = await import("./manage-booking.js");
+const { default: handler, isMissingColumnCompatError } = await import("./manage-booking.js");
 const { deriveBookingPaymentLifecycle } = await import("./_booking-payment-lifecycle.js");
 
 function makeReq(body, origin = "https://slycarrentals.com") {
@@ -116,8 +116,8 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           assert.equal(ctx.eqValue, "bk-fallback-001");
           if (ctx.selectValue.includes("pending_change")) {
             return makeQueryResult(null, {
-              code: "42703",
-              message: 'column "pending_change" does not exist',
+              code: "PGRST204",
+              message: "Could not find the 'pending_change' column of 'bookings' in the schema cache",
             });
           }
           return makeQueryResult(bookingRow);
@@ -204,6 +204,25 @@ test("manage-booking get normalizes display-name vehicle IDs to canonical IDs", 
 
   assert.equal(res._status, 200);
   assert.equal(res._body.vehicleId, "camry2013");
+});
+
+test("manage-booking compatibility matcher detects schema-cache missing column errors", () => {
+  const err = {
+    code: "PGRST204",
+    message: "Could not find the 'has_protection_plan' column of 'bookings' in the schema cache",
+  };
+  assert.equal(isMissingColumnCompatError(err, "has_protection_plan"), true);
+  assert.equal(isMissingColumnCompatError(err, "protection_plan_tier"), false);
+});
+
+test("manage-booking compatibility matcher checks message, details, and hint fields", () => {
+  const err = {
+    code: "PGRST204",
+    message: "Could not find the 'bookings' relation in the schema cache",
+    details: "Could not find the 'protection_plan_tier' column of 'bookings' in the schema cache",
+    hint: null,
+  };
+  assert.equal(isMissingColumnCompatError(err, "protection_plan_tier"), true);
 });
 
 test("manage-booking get suppresses dismissed late fee amount from renter payload", async () => {
@@ -532,4 +551,119 @@ test("create_balance_payment_intent allows overdue rentals to pay remaining bala
   assert.equal(res._body.paymentAmount, 300);
   assert.equal(stripeCreateCalls.length, 1);
   assert.equal(stripeCreateCalls[0].metadata.payment_type, "rental_balance");
+});
+
+test("apply_change omits protection-plan columns when booking read used legacy select fallback", async () => {
+  const bookingRow = {
+    id: 9,
+    booking_ref: "bk-fallback-001",
+    vehicle_id: "camry",
+    pickup_date: "2026-05-20",
+    return_date: "2026-05-24",
+    pickup_time: "10:00 AM",
+    return_time: "10:00 AM",
+    status: "reserved",
+    payment_status: "partial",
+    total_price: 275,
+    deposit_paid: 100,
+    remaining_balance: 175,
+    change_count: 0,
+    customer_name: "Test Renter",
+    customer_email: "test@example.com",
+    customer_phone: "3105550100",
+    created_at: "2026-05-15T00:00:00.000Z",
+  };
+
+  const bookingUpdates = [];
+  supabaseClient = {
+    from(table) {
+      if (table === "payment_plans") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          in() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "vehicle_pricing") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() {
+            return Promise.resolve(makeQueryResult([
+              { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 },
+            ]));
+          },
+        };
+      }
+      if (table === "blocked_dates") {
+        const ctx = { mode: "select", eqCount: 0 };
+        return {
+          select() {
+            ctx.mode = "select";
+            ctx.eqCount = 0;
+            return this;
+          },
+          update() {
+            ctx.mode = "update";
+            return this;
+          },
+          eq() {
+            if (ctx.mode === "update") return Promise.resolve(makeQueryResult(null));
+            ctx.eqCount += 1;
+            if (ctx.eqCount >= 3) return Promise.resolve(makeQueryResult([]));
+            return this;
+          },
+        };
+      }
+      assert.equal(table, "bookings");
+      const ctx = { mode: "select", selectValue: "" };
+      return {
+        select(value) {
+          ctx.mode = "select";
+          ctx.selectValue = value;
+          return this;
+        },
+        update(payload) {
+          ctx.mode = "update";
+          ctx.payload = payload;
+          return this;
+        },
+        eq(column, value) {
+          assert.equal(column, "booking_ref");
+          assert.equal(value, "bk-fallback-001");
+          if (ctx.mode === "update") {
+            bookingUpdates.push(ctx.payload);
+            return Promise.resolve(makeQueryResult(null));
+          }
+          return this;
+        },
+        async maybeSingle() {
+          if (ctx.selectValue.includes("pending_change")) {
+            return makeQueryResult(null, {
+              code: "PGRST204",
+              message: "Could not find the 'has_protection_plan' column of 'bookings' in the schema cache",
+            });
+          }
+          return makeQueryResult(bookingRow);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({
+    action: "apply_change",
+    token: "valid-token",
+    newPickupDate: "2026-05-21",
+    newReturnDate: "2026-05-25",
+    newVehicleId: "camry",
+  }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(bookingUpdates.length, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(bookingUpdates[0], "has_protection_plan"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(bookingUpdates[0], "protection_plan_tier"), false);
 });

@@ -54,6 +54,8 @@ const MANAGE_ELIGIBLE_STATUSES = ["reserved", "reserved_unpaid", "booked_paid", 
 const BOOKING_REF_PATTERN = /^bk-[a-z0-9]+$/;
 const POSTGRES_UNDEFINED_COLUMN_ERROR = "42703";
 const POSTGRES_UNDEFINED_TABLE_ERROR = "42P01";
+const POSTGREST_SCHEMA_CACHE_ERROR = "PGRST204";
+const POSTGREST_EMBEDDED_SCHEMA_ERROR = "PGRST200";
 const VERIFY_WINDOW_MS = 15 * 60 * 1000;
 const VERIFY_LOCK_MS = 15 * 60 * 1000;
 const VERIFY_MAX_ATTEMPTS = 8;
@@ -68,6 +70,20 @@ const BOOKING_SELECT_FALLBACK_COLS =
   "id, booking_ref, vehicle_id, pickup_date, return_date, pickup_time, return_time, " +
   "status, payment_status, total_price, deposit_paid, remaining_balance, " +
   "change_count, category, identity_session_id, customer_name, customer_email, customer_phone, created_at";
+
+export function isMissingColumnCompatError(err, columnName) {
+  if (!err) return false;
+  const code = String(err.code || "").trim();
+  const message = String(err.message || "").toLowerCase();
+  const details = String(err.details || "").toLowerCase();
+  const hint = String(err.hint || "").toLowerCase();
+  const fullText = `${message}\n${details}\n${hint}`;
+  const target = String(columnName || "").trim().toLowerCase();
+  if (!target) return false;
+  if (code === POSTGRES_UNDEFINED_COLUMN_ERROR && fullText.includes(target)) return true;
+  if ((code === POSTGREST_SCHEMA_CACHE_ERROR || code === POSTGREST_EMBEDDED_SCHEMA_ERROR) && fullText.includes(target)) return true;
+  return fullText.includes("schema cache") && fullText.includes(target);
+}
 
 // Best-effort in-memory rate limiting for booking verification attempts.
 const verifyAttempts = new Map();
@@ -172,7 +188,11 @@ async function fetchBookingFromSupabase(bookingRef) {
     .select(BOOKING_SELECT_COLS)
     .eq("booking_ref", bookingRef)
     .maybeSingle();
-  if (result.error?.code === POSTGRES_UNDEFINED_COLUMN_ERROR) {
+  if (
+    result.error?.code === POSTGRES_UNDEFINED_COLUMN_ERROR ||
+    result.error?.code === POSTGREST_SCHEMA_CACHE_ERROR ||
+    result.error?.code === POSTGREST_EMBEDDED_SCHEMA_ERROR
+  ) {
     selectFallbackUsed = true;
     result = await sb
       .from("bookings")
@@ -978,23 +998,48 @@ export default async function handler(req, res) {
     const sb = getSupabaseAdmin();
     if (!sb) return res.status(503).json({ error: "Database unavailable" });
 
-    const { error: sbErr } = await sb
+    const shouldPersistProtectionPlan = !row.__selectFallbackUsed;
+
+    const applyChangeUpdate = {
+      vehicle_id:          normalizeVehicleId(targetVehicleUiId),
+      pickup_date:         newPickupDate,
+      return_date:         newReturnDate,
+      pickup_time:         fPickupTime || row.pickup_time,
+      return_time:         fReturnTime || row.return_time,
+      total_price:         pricing.newTotal,
+      remaining_balance:   pricing.newBalanceDue,
+      change_count:        changeCount + 1,
+      balance_payment_link: newBalanceLink,
+      updated_at:          new Date().toISOString(),
+    };
+    if (shouldPersistProtectionPlan) {
+      applyChangeUpdate.has_protection_plan = hasProtection;
+      applyChangeUpdate.protection_plan_tier = hasProtection ? (tier || null) : null;
+    }
+
+    let { error: sbErr } = await sb
       .from("bookings")
-      .update({
-        vehicle_id:          normalizeVehicleId(targetVehicleUiId),
-        pickup_date:         newPickupDate,
-        return_date:         newReturnDate,
-        pickup_time:         fPickupTime || row.pickup_time,
-        return_time:         fReturnTime || row.return_time,
-        total_price:         pricing.newTotal,
-        remaining_balance:   pricing.newBalanceDue,
-        change_count:        changeCount + 1,
-        balance_payment_link: newBalanceLink,
-        has_protection_plan: hasProtection,
-        protection_plan_tier: hasProtection ? (tier || null) : null,
-        updated_at:          new Date().toISOString(),
-      })
+      .update(applyChangeUpdate)
       .eq("booking_ref", bookingId);
+
+    if (
+      sbErr &&
+      (isMissingColumnCompatError(sbErr, "has_protection_plan") ||
+        isMissingColumnCompatError(sbErr, "protection_plan_tier"))
+    ) {
+      const legacyApplyChangeUpdate = { ...applyChangeUpdate };
+      delete legacyApplyChangeUpdate.has_protection_plan;
+      delete legacyApplyChangeUpdate.protection_plan_tier;
+      console.warn(
+        "manage-booking apply_change retrying update without protection plan columns:",
+        sbErr.message
+      );
+      const retryResult = await sb
+        .from("bookings")
+        .update(legacyApplyChangeUpdate)
+        .eq("booking_ref", bookingId);
+      sbErr = retryResult.error || null;
+    }
 
     if (sbErr) {
       console.error(
