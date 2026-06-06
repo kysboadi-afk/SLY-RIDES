@@ -36,7 +36,7 @@ mock.module("./_vehicles.js", {
   },
 });
 
-const { default: handler } = await import("./manage-booking.js");
+const { default: handler, isMissingColumnCompatError } = await import("./manage-booking.js");
 const { deriveBookingPaymentLifecycle } = await import("./_booking-payment-lifecycle.js");
 
 function makeReq(body, origin = "https://slycarrentals.com") {
@@ -116,8 +116,8 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           assert.equal(ctx.eqValue, "bk-fallback-001");
           if (ctx.selectValue.includes("pending_change")) {
             return makeQueryResult(null, {
-              code: "42703",
-              message: 'column "pending_change" does not exist',
+              code: "PGRST204",
+              message: "Could not find the 'pending_change' column of 'bookings' in the schema cache",
             });
           }
           return makeQueryResult(bookingRow);
@@ -204,6 +204,15 @@ test("manage-booking get normalizes display-name vehicle IDs to canonical IDs", 
 
   assert.equal(res._status, 200);
   assert.equal(res._body.vehicleId, "camry2013");
+});
+
+test("manage-booking compatibility matcher detects schema-cache missing column errors", () => {
+  const err = {
+    code: "PGRST204",
+    message: "Could not find the 'has_protection_plan' column of 'bookings' in the schema cache",
+  };
+  assert.equal(isMissingColumnCompatError(err, "has_protection_plan"), true);
+  assert.equal(isMissingColumnCompatError(err, "protection_plan_tier"), false);
 });
 
 test("manage-booking get suppresses dismissed late fee amount from renter payload", async () => {
