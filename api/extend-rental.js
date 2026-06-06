@@ -115,6 +115,7 @@ export default async function handler(req, res) {
     let sbActiveBookingRef = null; // canonical booking_ref from Supabase (used for conflict-skip)
     let sbWaivedAmount = 0;        // admin-applied late-fee waiver (subtracted from late fee below)
     let sbDeferredLateFee = 0;     // late fee flagged as 'pending_collection' — added to this PI
+    let sbLateFeeDismissed = false; // explicit admin dismissal/waiver state (do not re-collect late fee)
     let sbExtensionCount = null;   // extension_count from Supabase (authoritative for policy checks)
 
     if (sb) {
@@ -160,6 +161,9 @@ export default async function handler(req, res) {
               // this extension PI so the renter pays it on their next payment.
               if (sbRow.late_fee_status === "pending_collection" && sbRow.late_fee_amount) {
                 sbDeferredLateFee = Math.max(0, Number(sbRow.late_fee_amount) || 0);
+              }
+              if (sbRow.late_fee_status === "dismissed") {
+                sbLateFeeDismissed = true;
               }
               // Capture authoritative extension count.
               if (sbRow.extension_count != null) {
@@ -220,6 +224,9 @@ export default async function handler(req, res) {
                 }
                 if (row.late_fee_status === "pending_collection" && row.late_fee_amount) {
                   sbDeferredLateFee = Math.max(0, Number(row.late_fee_amount) || 0);
+                }
+                if (row.late_fee_status === "dismissed") {
+                  sbLateFeeDismissed = true;
                 }
                 if (row.extension_count != null) {
                   sbExtensionCount = Number(row.extension_count) || 0;
@@ -357,6 +364,9 @@ export default async function handler(req, res) {
           }
           if (!sbDeferredLateFee && refRow.late_fee_status === "pending_collection" && refRow.late_fee_amount) {
             sbDeferredLateFee = Math.max(0, Number(refRow.late_fee_amount) || 0);
+          }
+          if (refRow.late_fee_status === "dismissed") {
+            sbLateFeeDismissed = true;
           }
           if (sbExtensionCount === null && refRow.extension_count != null) {
             sbExtensionCount = Number(refRow.extension_count) || 0;
@@ -598,10 +608,14 @@ export default async function handler(req, res) {
       const graceEndMs  = currentReturnMsLA + 30 * 60 * 1000;        // +30 min
       const resetTimeMs = currentReturnMsLA + 3  * 60 * 60 * 1000;   // +3 h
       const nowMs = Date.now();
-      if (nowMs > resetTimeMs) {
-        lateFeeIncluded = computeLateFeeAmount(effectiveReturnDate, resolvedReturnTime, nowMs);
-      } else if (nowMs > graceEndMs) {
-        lateFeeIncluded = computeLateFeeAmount(effectiveReturnDate, resolvedReturnTime, nowMs);
+      if (!sbLateFeeDismissed) {
+        if (nowMs > resetTimeMs) {
+          lateFeeIncluded = computeLateFeeAmount(effectiveReturnDate, resolvedReturnTime, nowMs);
+        } else if (nowMs > graceEndMs) {
+          lateFeeIncluded = computeLateFeeAmount(effectiveReturnDate, resolvedReturnTime, nowMs);
+        }
+      } else {
+        lateFeeIncluded = 0;
       }
 
       // ── Apply admin-granted waiver ──────────────────────────────────────────
