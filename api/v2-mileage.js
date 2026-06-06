@@ -84,6 +84,7 @@ export default async function handler(req, res) {
           last_oil_change_mileage:  r.last_oil_change_mileage  != null ? Number(r.last_oil_change_mileage)  : null,
           last_brake_check_mileage: r.last_brake_check_mileage != null ? Number(r.last_brake_check_mileage) : null,
           last_tire_change_mileage: r.last_tire_change_mileage != null ? Number(r.last_tire_change_mileage) : null,
+          maintenance_mileage_alert_miles: Number(r.data?.maintenance_mileage_alert_miles) || null,
           last_service_mileage:     Number(r.data?.last_service_mileage) || 0,
           bouncie_device_id:        r.bouncie_device_id,
           last_synced_at:           r.last_synced_at,

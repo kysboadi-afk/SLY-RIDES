@@ -73,6 +73,7 @@ const HIGH_MILEAGE_COOLDOWN_MS    = 60 * 60 * 1000; // 60 minutes
 // against the scoring proximity bonus overcoming the spam penalty when a
 // rental is near its return time.
 const MAINTENANCE_HARD_COOLDOWN_MIN = 24 * 60; // 24 hours in minutes
+const DEFAULT_OIL_INTERVAL_MILES = 3000;
 
 // Service definitions — intervals match lib/ai/mileage.js
 const SERVICES = [
@@ -98,6 +99,13 @@ const SERVICES = [
     warnPct:  0.8,
   },
 ];
+
+function resolveOilIntervalMiles(vehicleData) {
+  const raw = vehicleData?.maintenance_mileage_alert_miles;
+  const parsed = Math.round(Number(raw));
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OIL_INTERVAL_MILES;
+  return parsed;
+}
 
 // Deduplication key helpers (stored in booking.smsSentAt)
 const keyWarn   = (type) => `maint_${type}_warn`;
@@ -457,6 +465,7 @@ export default async function handler(req, res) {
 
       const bookingId = booking.bookingId || booking.paymentIntentId;
       const phone     = booking.phone;
+      const oilIntervalMiles = resolveOilIntervalMiles(row.data);
 
       // ── Compute time-proximity context ────────────────────────────────────
       const { end_datetime: returnDt, minutesToReturn: rawMinutesToReturn } =
@@ -498,12 +507,13 @@ export default async function handler(req, res) {
       }
 
       for (const svc of SERVICES) {
+        const serviceInterval = svc.type === "oil" ? oilIntervalMiles : svc.interval;
         // Resolve last-service mileage for this specific service type
         const lastMi  = row[svc.col] != null
           ? Number(row[svc.col])
           : Number(row.data?.last_service_mileage) || 0;
         const since   = Math.max(0, miles - lastMi);
-        const pct     = since / svc.interval;
+        const pct     = since / serviceInterval;
 
         if (pct < svc.warnPct) continue; // Below warning threshold
 

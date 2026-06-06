@@ -29,12 +29,22 @@ const ALLOWED_TYPES         = ["car", "economy", "luxury", "suv", "truck", "van"
 const ALLOWED_CATEGORIES    = ["car"];
 const MAX_VEHICLE_NAME_LEN  = 200;
 const MAX_PURCHASE_DATE_LEN = 20;
+const DEFAULT_MAINTENANCE_MILEAGE_ALERT_MILES = 3000;
 
 // vehicleId must be 2–50 lowercase letters, digits, hyphens, or underscores.
 const VEHICLE_ID_RE = /^[a-z0-9_-]{2,50}$/;
 
 // Bouncie IMEI: 15-digit numeric string, or empty string (to clear the mapping)
 const BOUNCIE_IMEI_RE = /^\d{15}$/;
+
+function parseMaintenanceMileageAlertMiles(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_MAINTENANCE_MILEAGE_ALERT_MILES;
+  }
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
 
 
 function deriveCategory() {
@@ -538,7 +548,7 @@ export default async function handler(req, res) {
 
     // ── CREATE ──────────────────────────────────────────────────────────────
     if (action === "create") {
-      const { vehicleId, vehicleName, type, category, vehicleYear, purchasePrice, purchaseDate, status, coverImage, galleryImages, bouncieDeviceId, vin, scarcityText, make, dailyRate, weeklyRate, biweeklyRate, monthlyRate, earningsTagline, earningsTitle, earningsRow1, earningsCta, hourlyTiers } = body;
+      const { vehicleId, vehicleName, type, category, vehicleYear, purchasePrice, purchaseDate, status, coverImage, galleryImages, bouncieDeviceId, vin, scarcityText, make, dailyRate, weeklyRate, biweeklyRate, monthlyRate, earningsTagline, earningsTitle, earningsRow1, earningsCta, hourlyTiers, maintenanceMileageAlertMiles } = body;
 
       if (!vehicleId || !VEHICLE_ID_RE.test(vehicleId)) {
         return res.status(400).json({ error: "vehicleId must be 2–50 lowercase letters, digits, hyphens, or underscores" });
@@ -590,6 +600,10 @@ export default async function handler(req, res) {
         }
         safeBouncieId = trimmed;
       }
+      const parsedMaintenanceMileageAlertMiles = parseMaintenanceMileageAlertMiles(maintenanceMileageAlertMiles);
+      if (parsedMaintenanceMileageAlertMiles == null) {
+        return res.status(400).json({ error: "maintenanceMileageAlertMiles must be a positive number" });
+      }
 
       // Parse pricing fields once so they can go into both the data blob and
       // the dedicated vehicle_pricing table (two sources stay in sync at creation).
@@ -630,6 +644,7 @@ export default async function handler(req, res) {
         ...(parsedBiweekly ? { biweekly_price: parsedBiweekly } : {}),
         ...(parsedMonthly  ? { monthly_price:  parsedMonthly }  : {}),
         ...(hourlyTiers && typeof hourlyTiers === 'object' ? { hourlyTiers } : {}),
+        maintenance_mileage_alert_miles: parsedMaintenanceMileageAlertMiles,
       };
 
       if (supabase) {
