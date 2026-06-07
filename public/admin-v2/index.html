@@ -4075,6 +4075,11 @@ function vehicleImgPlaceholder() {
   return '<div class="vehicle-img-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v5"/><circle cx="16" cy="17" r="3"/><circle cx="7" cy="17" r="3"/></svg></div>';
 }
 
+function resolveVehicleOilInterval(vehicle) {
+  const parsed = Math.round(Number(vehicle?.maintenance_mileage_alert_miles));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3000;
+}
+
 // Dynamic maps populated from /api/v2-vehicles (override hard-coded fallbacks above)
 let VEHICLE_NAMES_DYNAMIC  = {};
 let VEHICLE_IMAGES_DYNAMIC = {};
@@ -4104,11 +4109,6 @@ async function loadVehiclesFromApi() {
             perDay:  v.daily_price  || 0,
             perWeek: v.weekly_price || 0,
           };
-        }
-
-        function resolveVehicleOilInterval(vehicle) {
-          const parsed = Math.round(Number(vehicle?.maintenance_mileage_alert_miles));
-          return Number.isFinite(parsed) && parsed > 0 ? parsed : 3000;
         }
       }
     });
