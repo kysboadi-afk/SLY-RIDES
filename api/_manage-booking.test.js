@@ -98,9 +98,18 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           limit() { return Promise.resolve(makeQueryResult([])); },
         };
       }
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
       assert.equal(table, "bookings");
-      const ctx = { selectValue: "" };
-      return {
+      const ctx = { selectValue: "", isCountQuery: false };
+      const chain = {
         select(value) {
           ctx.selectValue = value;
           selects.push(value);
@@ -110,6 +119,12 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           ctx.eqColumn = column;
           ctx.eqValue = value;
           return this;
+        },
+        ilike() { ctx.isCountQuery = true; return this; },
+        not() { return this; },
+        then(resolve) {
+          // count query resolves directly (no maybeSingle)
+          resolve({ count: 1, data: null, error: null });
         },
         async maybeSingle() {
           assert.equal(ctx.eqColumn, "booking_ref");
@@ -123,6 +138,7 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           return makeQueryResult(bookingRow);
         },
       };
+      return chain;
     },
   };
 
@@ -137,6 +153,8 @@ test("manage-booking get falls back to legacy booking columns when newer columns
   assert.equal(res._body.paymentPlan, null);
   assert.equal(res._body.paymentLifecycleState, "deposit_paid");
   assert.equal(res._body.canPayRemainingOnline, true);
+  assert.equal(res._body.customerTier, "standard");
+  assert.equal(res._body.isVipClient, false);
   assert.equal(res._body.isReservationStage, true);
   assert.deepEqual(res._body.contractTransitionObservability.canonicalFinancialSnapshot, {
     total: 275,
@@ -153,7 +171,7 @@ test("manage-booking get falls back to legacy booking columns when newer columns
   assert.deepEqual(res._body.contractTransitionObservability.surfacesUsingLegacyDerivations, [
     "manage_booking_dashboard",
   ]);
-  assert.deepEqual(selects.length, 2);
+  assert.deepEqual(selects.length, 3);
 });
 
 test("manage-booking get normalizes display-name vehicle IDs to canonical IDs", async () => {
@@ -184,6 +202,15 @@ test("manage-booking get normalizes display-name vehicle IDs to canonical IDs", 
           select() { return this; },
           eq() { return this; },
           in() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          eq() { return this; },
           order() { return this; },
           limit() { return Promise.resolve(makeQueryResult([])); },
         };
@@ -443,6 +470,26 @@ test("create_balance_payment_intent keeps automatic payment methods for remainin
 
   supabaseClient = {
     from(table) {
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          order() { return this; },
+          limit() {
+            return Promise.resolve(makeQueryResult([
+              {
+                email: "partial@example.com",
+                total_profit: 900,
+                total_bookings: 4,
+                risk_flag: "low",
+                flagged: false,
+                banned: false,
+                no_show_count: 0,
+              },
+            ]));
+          },
+        };
+      }
       assert.equal(table, "bookings");
       return {
         select() { return this; },
@@ -486,6 +533,26 @@ test("create_balance_payment_intent marks partial payments as partial_balance wh
 
   supabaseClient = {
     from(table) {
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          order() { return this; },
+          limit() {
+            return Promise.resolve(makeQueryResult([
+              {
+                email: "partial@example.com",
+                total_profit: 900,
+                total_bookings: 4,
+                risk_flag: "low",
+                flagged: false,
+                banned: false,
+                no_show_count: 0,
+              },
+            ]));
+          },
+        };
+      }
       assert.equal(table, "bookings");
       return {
         select() { return this; },
@@ -510,6 +577,70 @@ test("create_balance_payment_intent marks partial payments as partial_balance wh
   assert.equal(stripeCreateCalls.length, 1);
   assert.equal(stripeCreateCalls[0].automatic_payment_methods?.enabled, true);
   assert.equal(stripeCreateCalls[0].metadata.payment_type, "partial_balance");
+});
+
+test("create_balance_payment_intent blocks partial payments for non-VIP clients", async () => {
+  process.env.STRIPE_SECRET_KEY = "sk_test_manage_booking";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_manage_booking";
+
+  const bookingRow = {
+    booking_ref: "bk-fallback-001",
+    vehicle_id: "camry",
+    category: "car",
+    status: "active_rental",
+    total_price: 450,
+    deposit_paid: 150,
+    remaining_balance: 300,
+    customer_name: "Standard Client",
+    customer_email: "standard@example.com",
+    customer_phone: "+13105550009",
+    pickup_date: "2026-08-10",
+    return_date: "2026-08-15",
+  };
+
+  supabaseClient = {
+    from(table) {
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          order() { return this; },
+          limit() {
+            return Promise.resolve(makeQueryResult([
+              {
+                email: "standard@example.com",
+                total_profit: 200,
+                total_bookings: 5,
+                risk_flag: "low",
+                flagged: false,
+                banned: false,
+                no_show_count: 0,
+              },
+            ]));
+          },
+        };
+      }
+      assert.equal(table, "bookings");
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async maybeSingle() {
+          return makeQueryResult(bookingRow);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({
+    action: "create_balance_payment_intent",
+    token: "valid-token",
+    payment_amount: 125,
+  }), res);
+
+  assert.equal(res._status, 403);
+  assert.equal(res._body.error, "Partial balance payments are only available to VIP clients.");
+  assert.equal(stripeCreateCalls.length, 0);
 });
 
 test("create_balance_payment_intent allows overdue rentals to pay remaining balance", async () => {

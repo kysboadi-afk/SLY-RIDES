@@ -1167,7 +1167,8 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     if (canPayBalance && $payBalSection) {
       $payBalSection.style.display = "block";
       if ($btnInitBalance) $btnInitBalance.textContent = `Pay Remaining Balance (${fmt(balance)})`;
-      if ($btnOpenPartial) $btnOpenPartial.style.display = "";
+      const isVipClient = b?.isVipClient === true || String(b?.customerTier || "").trim().toLowerCase() === "vip";
+      if ($btnOpenPartial) $btnOpenPartial.style.display = isVipClient ? "" : "none";
     } else if ($payBalSection) {
       $payBalSection.style.display = "none";
     }

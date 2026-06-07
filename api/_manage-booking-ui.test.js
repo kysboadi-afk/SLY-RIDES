@@ -118,6 +118,9 @@ function baseBooking(overrides = {}) {
     customerPhone: "3105550100",
     changeCount: 0,
     paymentPlan: null,
+    customerTier: "vip",
+    isVipClient: true,
+    renterBookingCount: 3,
     ...overrides,
   };
 }
@@ -172,6 +175,25 @@ test("deposit-only reservation ignores zeroed ledger balance and keeps remaining
   assert.equal(document.getElementById("pay-balance-section").style.display, "block");
   assert.equal(document.getElementById("btn-open-partial").style.display, "");
   assert.equal(document.getElementById("paid-in-full-notice").style.display, "none");
+});
+
+test("non-VIP renters do not see the partial payment button", async () => {
+  const document = await bootDashboard({
+    bookingPayload: baseBooking({ customerTier: "standard", isVipClient: false, renterBookingCount: 7 }),
+    ledgerPayload: {
+      summary: {
+        total_paid: 50,
+        total_charges: 0,
+        remaining_balance: 0,
+        transaction_count: 1,
+      },
+      transactions: [],
+    },
+    agreementPayload: {},
+  });
+
+  assert.equal(document.getElementById("pay-balance-section").style.display, "block");
+  assert.equal(document.getElementById("btn-open-partial").style.display, "none");
 });
 
 test("partial-balance ledger summary updates remaining amount and payment progress", async () => {
