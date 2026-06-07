@@ -99,8 +99,8 @@ test("manage-booking get falls back to legacy booking columns when newer columns
         };
       }
       assert.equal(table, "bookings");
-      const ctx = { selectValue: "" };
-      return {
+      const ctx = { selectValue: "", isCountQuery: false };
+      const chain = {
         select(value) {
           ctx.selectValue = value;
           selects.push(value);
@@ -110,6 +110,12 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           ctx.eqColumn = column;
           ctx.eqValue = value;
           return this;
+        },
+        ilike() { ctx.isCountQuery = true; return this; },
+        not() { return this; },
+        then(resolve) {
+          // count query resolves directly (no maybeSingle)
+          resolve({ count: 1, data: null, error: null });
         },
         async maybeSingle() {
           assert.equal(ctx.eqColumn, "booking_ref");
@@ -123,6 +129,7 @@ test("manage-booking get falls back to legacy booking columns when newer columns
           return makeQueryResult(bookingRow);
         },
       };
+      return chain;
     },
   };
 
@@ -153,7 +160,7 @@ test("manage-booking get falls back to legacy booking columns when newer columns
   assert.deepEqual(res._body.contractTransitionObservability.surfacesUsingLegacyDerivations, [
     "manage_booking_dashboard",
   ]);
-  assert.deepEqual(selects.length, 2);
+  assert.deepEqual(selects.length, 3);
 });
 
 test("manage-booking get normalizes display-name vehicle IDs to canonical IDs", async () => {

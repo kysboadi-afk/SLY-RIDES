@@ -697,6 +697,26 @@ export default async function handler(req, res) {
     });
     const agreementSummary = await loadBookingAgreementSummary(getSupabaseAdmin(), bookingId);
 
+    // Count how many completed (non-cancelled) bookings this renter has in total,
+    // so the frontend can decide whether to show the partial payment option.
+    let renterBookingCount = 0;
+    const renterEmail = (row.customer_email || "").trim().toLowerCase();
+    if (renterEmail) {
+      const sb = getSupabaseAdmin();
+      if (sb) {
+        try {
+          const { count } = await sb
+            .from("bookings")
+            .select("booking_ref", { count: "exact", head: true })
+            .ilike("customer_email", renterEmail)
+            .not("status", "in", '("cancelled","canceled","rejected","declined")');
+          if (Number.isFinite(count)) renterBookingCount = count;
+        } catch (countErr) {
+          console.warn("[manage-booking] renterBookingCount query failed (non-fatal):", countErr.message);
+        }
+      }
+    }
+
     return res.status(200).json({
       bookingId,
       vehicleId,
@@ -736,6 +756,7 @@ export default async function handler(req, res) {
       currentAgreement: agreementSummary.currentAgreement,
       agreements: agreementSummary.agreements,
       contractTransitionObservability,
+      renterBookingCount,
     });
   }
 

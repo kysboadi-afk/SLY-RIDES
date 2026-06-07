@@ -1167,7 +1167,9 @@ table{width:100%;border-collapse:collapse;margin-top:18px} td{border:1px solid #
     if (canPayBalance && $payBalSection) {
       $payBalSection.style.display = "block";
       if ($btnInitBalance) $btnInitBalance.textContent = `Pay Remaining Balance (${fmt(balance)})`;
-      if ($btnOpenPartial) $btnOpenPartial.style.display = "";
+      // Partial payments are only available to repeat renters (3rd booking or later)
+      const isRepeatRenter = Number(b.renterBookingCount || 0) >= 3;
+      if ($btnOpenPartial) $btnOpenPartial.style.display = isRepeatRenter ? "" : "none";
     } else if ($payBalSection) {
       $payBalSection.style.display = "none";
     }

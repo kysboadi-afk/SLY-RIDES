@@ -118,6 +118,7 @@ function baseBooking(overrides = {}) {
     customerPhone: "3105550100",
     changeCount: 0,
     paymentPlan: null,
+    renterBookingCount: 3,
     ...overrides,
   };
 }
