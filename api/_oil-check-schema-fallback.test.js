@@ -172,12 +172,13 @@ mock.module("./_error-helpers.js", {
 // Return the hard-coded default (500) so tests exercise the cron logic without
 // a live Supabase connection.  Individual tests that need a custom value can
 // override `settingsState.milesInterval` before calling the handler.
-const settingsState = { milesInterval: 500 };
+const settingsState = { milesInterval: 500, daysSinceCheck: Number.MAX_SAFE_INTEGER };
 
 mock.module("./_settings.js", {
   namedExports: {
     loadNumericSetting: async (key, defaultVal) => {
       if (key === "oil_check_miles_interval") return settingsState.milesInterval;
+      if (key === "oil_check_days_since_check") return settingsState.daysSinceCheck;
       return defaultVal;
     },
   },
@@ -198,6 +199,7 @@ beforeEach(() => {
   sentSms.length = 0;
   currentSupabaseClient = null;
   settingsState.milesInterval = 500;
+  settingsState.daysSinceCheck = Number.MAX_SAFE_INTEGER;
 
   oilState.bookingsRows = [];
   oilState.bookingsUpdatePayloads = [];

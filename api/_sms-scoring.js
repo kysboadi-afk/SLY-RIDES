@@ -77,12 +77,16 @@ const URGENCY_SCORE = {
   // P2 — Critical operational
   late_at_return:                     45,
   maint_oil_urgent:                   45,
+  maint_oil_escalate:                 45,
   late_warning_30min:                 42,
   maint_brakes_urgent:                42,
+  maint_brakes_escalate:              42,
   OIL_CHECK_FINAL:                    42,
   MAINTENANCE_REQUIRED:               40,
   maint_tires_urgent:                 40,
+  maint_tires_escalate:               40,
   MAINTENANCE_AVAILABILITY_URGENT:    40,
+  MAINTENANCE_AVAILABILITY_ESCALATION: 40,
   OIL_CHECK_REMINDER:                 40,
 
   // P3 — Standard operational
@@ -119,14 +123,18 @@ const CONTEXT_SCORE = {
   late_grace_expired:                 20,
   late_at_return:                     20,
   maint_oil_urgent:                   18,
+  maint_oil_escalate:                 18,
   OIL_CHECK_FINAL:                    18,
   late_warning_30min:                 17,
   maint_brakes_urgent:                17,
+  maint_brakes_escalate:              17,
   OIL_CHECK_REMINDER:                 17,
   MAINTENANCE_REQUIRED:               16,
   unpaid_final:                       17,
   maint_tires_urgent:                 16,
+  maint_tires_escalate:               16,
   MAINTENANCE_AVAILABILITY_URGENT:    16,
+  MAINTENANCE_AVAILABILITY_ESCALATION: 16,
 
   // Tied to booking timeline (mid tier: 12–16)
   active_rental_1h_before_end:        16,
