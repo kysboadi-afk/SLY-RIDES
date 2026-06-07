@@ -8,12 +8,12 @@
 // Only sends alerts when the vehicle has an ACTIVE booking (status = "active_rental").
 //
 // Flow per vehicle × service type (oil | brakes | tires):
-//   ≥80%  (warn):     Send driver SMS warning — once per booking per service type
-//   ≥100% (urgent):   Send driver SMS urgent   — once per booking per service type
-//   ≥100% + 48 h after urgent, no service recorded → escalate:
+//   Maintenance thresholds and escalation timing are loaded from system_settings.
+//   warn → Send driver SMS warning — once per booking per service type
+//   urgent → Send driver SMS urgent — once per booking per service type
+//   urgent + configured delay after no response, no service recorded → escalate:
 //     • Driver SMS final notice
-//     • Owner SMS  → OWNER_PHONE (env var, default +18445114059)
-//     • Owner email → OWNER_EMAIL (env var, default slyservices@supports-info.com)
+//     • Owner SMS / email using admin-configured maintenance owner contacts
 //     • booking.maintenance_status = "non_compliant" persisted to bookings.json
 //     • vehicle.data.service_required = true persisted to Supabase
 //
