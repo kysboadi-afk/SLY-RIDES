@@ -95,6 +95,82 @@ function normalizeLookupPhone(value) {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 }
 
+function normalizeLookupEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function computeCustomerTier(cust = {}) {
+  if (cust.banned) return "risky";
+  if (cust.flagged || cust.risk_flag === "high" || Number(cust.no_show_count || 0) >= 2) return "risky";
+  const totalProfit = cust.total_profit != null ? Number(cust.total_profit) : null;
+  const totalBookings = Number(cust.total_bookings || 0);
+  if (totalProfit != null && totalProfit < 0) return "unprofitable";
+  if (totalProfit != null && totalProfit >= 500 && totalBookings >= 3) return "vip";
+  return "standard";
+}
+
+function pickLatestCustomer(rows = []) {
+  return [...rows].sort((a, b) => {
+    const aUpdated = Date.parse(a?.updated_at || a?.created_at || 0) || 0;
+    const bUpdated = Date.parse(b?.updated_at || b?.created_at || 0) || 0;
+    return bUpdated - aUpdated;
+  })[0] || null;
+}
+
+async function resolveCustomerTierForBooking(row) {
+  const sb = getSupabaseAdmin();
+  if (!sb) return "standard";
+
+  const selectCols = "email, phone, risk_flag, flagged, banned, total_profit, total_bookings, no_show_count, updated_at, created_at";
+  const normalizedEmail = normalizeLookupEmail(row?.customer_email);
+  const normalizedPhone = normalizeLookupPhone(row?.customer_phone);
+
+  try {
+    if (normalizedEmail) {
+      const { data, error } = await sb
+        .from("customers")
+        .select(selectCols)
+        .ilike("email", normalizedEmail)
+        .order("updated_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(10);
+      if (!error) {
+        const exactMatches = (Array.isArray(data) ? data : [])
+          .filter((cust) => normalizeLookupEmail(cust?.email) === normalizedEmail);
+        const customer = pickLatestCustomer(exactMatches);
+        if (customer) return computeCustomerTier(customer);
+      }
+    }
+
+    if (normalizedPhone) {
+      const phoneCandidates = [...new Set([
+        String(row?.customer_phone || "").trim(),
+        normalizedPhone,
+        `+1${normalizedPhone}`,
+      ].filter(Boolean))];
+
+      for (const phoneCandidate of phoneCandidates) {
+        const { data, error } = await sb
+          .from("customers")
+          .select(selectCols)
+          .eq("phone", phoneCandidate)
+          .order("updated_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false, nullsFirst: false })
+          .limit(10);
+        if (error) continue;
+        const exactMatches = (Array.isArray(data) ? data : [])
+          .filter((cust) => normalizeLookupPhone(cust?.phone) === normalizedPhone);
+        const customer = pickLatestCustomer(exactMatches);
+        if (customer) return computeCustomerTier(customer);
+      }
+    }
+  } catch (customerErr) {
+    console.warn("[manage-booking] customer tier lookup failed (non-fatal):", customerErr.message);
+  }
+
+  return "standard";
+}
+
 function normalizeLookupBookingRef(value) {
   const trimmed = String(value || "").trim();
   return BOOKING_REF_PATTERN.test(trimmed.toLowerCase()) ? trimmed.toLowerCase() : "";
@@ -696,6 +772,7 @@ export default async function handler(req, res) {
       surfaces: contractTransitionObservability.surfacesUsingLegacyDerivations,
     });
     const agreementSummary = await loadBookingAgreementSummary(getSupabaseAdmin(), bookingId);
+    const customerTier = await resolveCustomerTierForBooking(row);
 
     // Count how many completed (non-cancelled) bookings this renter has in total,
     // so the frontend can decide whether to show the partial payment option.
@@ -756,6 +833,8 @@ export default async function handler(req, res) {
       currentAgreement: agreementSummary.currentAgreement,
       agreements: agreementSummary.agreements,
       contractTransitionObservability,
+      customerTier,
+      isVipClient: customerTier === "vip",
       renterBookingCount,
     });
   }
@@ -839,6 +918,12 @@ export default async function handler(req, res) {
       paymentAmount = requested;
     }
     const isPartialPayment = Math.round(paymentAmount * 100) < Math.round(resolvedBalance * 100);
+    if (isPartialPayment) {
+      const customerTier = await resolveCustomerTierForBooking(row);
+      if (customerTier !== "vip") {
+        return res.status(403).json({ error: "Partial balance payments are only available to VIP clients." });
+      }
+    }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(paymentAmount * 100),
