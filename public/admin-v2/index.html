@@ -3593,6 +3593,11 @@
         <div class="form-hint">15-digit IMEI from the Bouncie tracker. Enables automatic mileage tracking.</div>
       </div>
       <div class="form-group full av-car-only">
+        <label class="form-label">Maintenance Mileage Alert Limit (Oil Change)</label>
+        <input type="number" class="form-input" id="av-maint-mileage-alert" min="1" step="1" placeholder="e.g. 3000">
+        <div class="form-hint">Per-vehicle mileage threshold for oil-change maintenance alerts. Default is 3,000 miles.</div>
+      </div>
+      <div class="form-group full av-car-only">
         <label class="form-label">VIN</label>
         <input type="text" class="form-input" id="av-vin" placeholder="e.g. 1HGCM82633A123456" maxlength="50">
         <div class="form-hint">17-character Vehicle Identification Number (optional).</div>
@@ -4068,6 +4073,11 @@ function normalizeCoverImage(val) {
 // Defined as a function so onerror handlers can call it without complex escaping.
 function vehicleImgPlaceholder() {
   return '<div class="vehicle-img-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v5"/><circle cx="16" cy="17" r="3"/><circle cx="7" cy="17" r="3"/></svg></div>';
+}
+
+function resolveVehicleOilInterval(vehicle) {
+  const parsed = Math.round(Number(vehicle?.maintenance_mileage_alert_miles));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3000;
 }
 
 // Dynamic maps populated from /api/v2-vehicles (override hard-coded fallbacks above)
@@ -5288,8 +5298,9 @@ function getVehicleProfileBookings(vehicleId) {
 
 function getVehicleServiceSnapshot(vehicle) {
   const totalMileage = Number(vehicle?.total_mileage || 0);
+  const oilIntervalMiles = resolveVehicleOilInterval(vehicle);
   const services = [
-    { label: 'Oil change', last: Number(vehicle?.last_oil_change_mileage || 0), interval: 3000 },
+    { label: 'Oil change', last: Number(vehicle?.last_oil_change_mileage || 0), interval: oilIntervalMiles },
     { label: 'Brake check', last: Number(vehicle?.last_brake_check_mileage || 0), interval: 10000 },
     { label: 'Tire replacement', last: Number(vehicle?.last_tire_change_mileage || 0), interval: 20000 },
   ].filter((service) => service.last > 0 && totalMileage > 0);
@@ -5582,7 +5593,7 @@ function renderVehicleProfile(id, v, s) {
             </thead>
             <tbody>
               ${[
-                { label: 'Oil Change',       key: 'last_oil_change_mileage',   tsKey: 'last_oil_change_recorded_at',   interval: 3000 },
+                { label: 'Oil Change',       key: 'last_oil_change_mileage',   tsKey: 'last_oil_change_recorded_at',   interval: resolveVehicleOilInterval(v) },
                 { label: 'Brake Inspection', key: 'last_brake_check_mileage',  tsKey: 'last_brake_check_recorded_at',  interval: 10000 },
                 { label: 'Tire Replacement', key: 'last_tire_change_mileage',  tsKey: 'last_tire_change_recorded_at',  interval: 20000 },
               ].map(({ label, key, tsKey, interval }) => {
@@ -6090,6 +6101,7 @@ function openAddVehicle() {
   document.getElementById('av-purchase-date').value = '';
   document.getElementById('av-cover-image').value = '';
   document.getElementById('av-bouncie-id').value = '';
+  document.getElementById('av-maint-mileage-alert').value = '3000';
   document.getElementById('av-vin').value = '';
   document.getElementById('av-scarcity').value = '';
   document.getElementById('av-earnings-tagline').value = '';
@@ -6123,6 +6135,7 @@ async function saveNewVehicle() {
   const coverImage      = document.getElementById('av-cover-image').value.trim();
   const galleryImages   = readGalleryUrls('av');
   const bouncieDeviceId = document.getElementById('av-bouncie-id').value.trim() || null;
+  const maintenanceMileageAlertMiles = parseInt(document.getElementById('av-maint-mileage-alert').value, 10) || null;
   const vin             = document.getElementById('av-vin').value.trim() || null;
   const scarcityText    = document.getElementById('av-scarcity').value.trim() || null;
   const earningsTagline = document.getElementById('av-earnings-tagline').value.trim() || null;
@@ -6153,6 +6166,11 @@ async function saveNewVehicle() {
     msgEl.textContent = 'Category is required — select Car.';
     return;
   }
+  if (!maintenanceMileageAlertMiles || maintenanceMileageAlertMiles <= 0) {
+    msgEl.style.color = 'var(--danger)';
+    msgEl.textContent = 'Maintenance mileage alert limit must be a positive number.';
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = 'Adding…';
@@ -6172,6 +6190,7 @@ async function saveNewVehicle() {
       ...(earningsTitle   ? { earningsTitle }   : {}),
       ...(earningsRow1    ? { earningsRow1 }    : {}),
       ...(earningsCta     ? { earningsCta }     : {}),
+      maintenanceMileageAlertMiles,
       ...(dailyRate    ? { dailyRate }    : {}),
       ...(weeklyRate   ? { weeklyRate }   : {}),
       ...(biweeklyRate ? { biweeklyRate } : {}),

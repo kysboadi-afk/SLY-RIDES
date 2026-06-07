@@ -653,6 +653,25 @@ test("create: 400 on invalid type", async () => {
   setSecret(REAL_ADMIN_SECRET);
 });
 
+test("create: 400 on invalid maintenanceMileageAlertMiles", async () => {
+  setSecret("testSecret");
+  supabaseMockState.client = makeSupabase();
+
+  const req = makeReq({ body: {
+    secret: "testSecret",
+    action: "create",
+    vehicleId: "mynewcar",
+    vehicleName: "My New Car",
+    maintenanceMileageAlertMiles: 0,
+  } });
+  const res = makeRes();
+  await handler(req, res);
+
+  assert.equal(res._status, 400);
+  assert.ok(res._body.error.includes("maintenanceMileageAlertMiles"));
+  setSecret(REAL_ADMIN_SECRET);
+});
+
 test("create: 409 when vehicle already exists", async () => {
   setSecret("testSecret");
   supabaseMockState.client = {
@@ -691,7 +710,7 @@ test("create: inserts new vehicle and returns 201", async () => {
     secret: "testSecret", action: "create",
     vehicleId: "mynewcar", vehicleName: "My New Car",
     type: "economy", vehicleYear: 2023, purchasePrice: 15000,
-    purchaseDate: "2023-06-01", status: "active",
+    purchaseDate: "2023-06-01", status: "active", maintenanceMileageAlertMiles: 3500,
   } });
   const res = makeRes();
   await handler(req, res);
@@ -705,6 +724,7 @@ test("create: inserts new vehicle and returns 201", async () => {
   assert.equal(insertedPayload.data.vehicle_name, "My New Car");
   assert.equal(insertedPayload.data.type, "economy");
   assert.equal(insertedPayload.data.vehicle_year, 2023);
+  assert.equal(insertedPayload.data.maintenance_mileage_alert_miles, 3500);
   setSecret(REAL_ADMIN_SECRET);
 });
 
@@ -732,7 +752,7 @@ test("create: defaults type to economy and status to active when omitted", async
   assert.equal(res._status, 201);
   assert.equal(insertedPayload.data.type, "economy");
   assert.equal(insertedPayload.data.status, "active");
+  assert.equal(insertedPayload.data.maintenance_mileage_alert_miles, 3000);
   setSecret(REAL_ADMIN_SECRET);
 });
-
 

@@ -50,7 +50,7 @@ const MSG_OIL_CHECK_REQUEST =
   "LOW (below safe line)";
 
 // Merged message — sent when the oil-check trigger fires AND the vehicle is
-// also due for a 3000-mile oil change service.  Combines both requests into a
+// also due for its configured oil-change mileage interval. Combines both requests into a
 // single SMS so the renter receives only one message.
 const MSG_OIL_CHECK_MERGED =
   "Quick vehicle check required.\n\n" +
@@ -90,6 +90,7 @@ const ESCALATE_AFTER_HOURS = 24;   // hours of no-reply before escalating
 const AVG_MILES_OIL_RISK_THRESHOLD  = 150; // >= 150 mi/day → OIL_CHECK_RISK
 const AVG_MILES_MAINT_REQ_THRESHOLD = 250; // >= 250 mi/day → MAINTENANCE_REQUIRED
 const MS_PER_DAY                    = 86_400_000;
+const DEFAULT_OIL_CHANGE_INTERVAL_MILES = 3000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,12 @@ const MS_PER_DAY                    = 86_400_000;
  */
 function hoursSince(earlier, later = new Date().toISOString()) {
   return (new Date(later) - new Date(earlier)) / 3_600_000;
+}
+
+function resolveOilChangeIntervalMiles(raw) {
+  const parsed = Math.round(Number(raw));
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OIL_CHANGE_INTERVAL_MILES;
+  return parsed;
 }
 
 /**
@@ -301,11 +308,11 @@ export default async function handler(req, res) {
   }
 
   // ── Load vehicle service-mileage data (for merged-message detection) ───────
-  // Used to determine whether a 3000-mile oil change is also due at the time
+  // Used to determine whether a vehicle-specific oil-change mileage interval is due at the time
   // of the oil-check trigger so that both requests can be merged into one SMS.
   const { data: vehicleRows } = await sb
     .from("vehicles")
-    .select("vehicle_id, mileage, last_oil_change_mileage")
+    .select("vehicle_id, mileage, last_oil_change_mileage, data")
     .in("vehicle_id", vehicleIds);
 
   const vehicleByVehicle = {};
@@ -506,10 +513,11 @@ export default async function handler(req, res) {
     const lastOilChangeMi = vData?.last_oil_change_mileage != null
       ? Number(vData.last_oil_change_mileage)
       : null;
+    const oilChangeIntervalMiles = resolveOilChangeIntervalMiles(vData?.data?.maintenance_mileage_alert_miles);
     const milesSinceOilChange = vehicleMileage != null && lastOilChangeMi != null
       ? vehicleMileage - lastOilChangeMi
       : null;
-    const mileageMaintenanceDue = milesSinceOilChange != null && milesSinceOilChange >= 3000;
+    const mileageMaintenanceDue = milesSinceOilChange != null && milesSinceOilChange >= oilChangeIntervalMiles;
 
     const msgToSend   = mileageMaintenanceDue ? MSG_OIL_CHECK_MERGED : MSG_OIL_CHECK_REQUEST;
     const triggerKey  = mileageMaintenanceDue ? "OIL_CHECK_MERGED"   : "OIL_CHECK_REQUEST";
