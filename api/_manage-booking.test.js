@@ -533,6 +533,26 @@ test("create_balance_payment_intent marks partial payments as partial_balance wh
 
   supabaseClient = {
     from(table) {
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          order() { return this; },
+          limit() {
+            return Promise.resolve(makeQueryResult([
+              {
+                email: "partial@example.com",
+                total_profit: 900,
+                total_bookings: 4,
+                risk_flag: "low",
+                flagged: false,
+                banned: false,
+                no_show_count: 0,
+              },
+            ]));
+          },
+        };
+      }
       assert.equal(table, "bookings");
       return {
         select() { return this; },
