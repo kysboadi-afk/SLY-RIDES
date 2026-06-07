@@ -17,6 +17,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { adminErrorMessage, isSchemaError } from "./_error-helpers.js";
 import { isAdminAuthorized, isAdminConfigured } from "./_admin-auth.js";
+import { MAINTENANCE_DEFAULT_SETTINGS } from "./_system-settings-defaults.js";
 
 const ALLOWED_ORIGINS = ["https://www.slytrans.com", "https://slytrans.com", "https://slycarrentals.com", "https://www.slycarrentals.com", "https://admin.slycarrentals.com"];
 
@@ -74,8 +75,7 @@ const DEFAULT_SETTINGS = [
   { key: "extension_risk_abnormal_frequency_count",          value: 4,     description: "Extension frequency threshold that should trigger abnormal-frequency alerts", category: "extension_automation" },
   { key: "extension_risk_override_alert_threshold",          value: 3,     description: "Override-usage threshold that should trigger repeated-override alerts", category: "extension_automation" },
   { key: "extension_risk_excessive_stack_count",             value: 4,     description: "Extension stacking threshold that should recommend restricted-extension handling", category: "extension_automation" },
-  // Maintenance / oil-check compliance
-  { key: "oil_check_miles_interval",  value: 500,   description: "Miles driven since last oil check before an oil-check SMS is sent to the active renter (default: 500)", category: "maintenance" },
+  ...MAINTENANCE_DEFAULT_SETTINGS,
 ];
 
 export default async function handler(req, res) {

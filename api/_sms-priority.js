@@ -52,7 +52,11 @@ export const SMS_PRIORITY = {
   maint_oil_urgent:                PRIORITY.IMPORTANT,  // oil overdue (100%+)
   maint_brakes_urgent:             PRIORITY.IMPORTANT,  // brakes overdue
   maint_tires_urgent:              PRIORITY.IMPORTANT,  // tires overdue
+  maint_oil_escalate:              PRIORITY.IMPORTANT,  // oil escalation after no response
+  maint_brakes_escalate:           PRIORITY.IMPORTANT,  // brakes escalation after no response
+  maint_tires_escalate:            PRIORITY.IMPORTANT,  // tires escalation after no response
   MAINTENANCE_AVAILABILITY_URGENT: PRIORITY.IMPORTANT,  // generic urgent maintenance
+  MAINTENANCE_AVAILABILITY_ESCALATION: PRIORITY.IMPORTANT, // final maintenance follow-up
   OIL_CHECK_FINAL:                 PRIORITY.IMPORTANT,  // final oil-check escalation
   OIL_CHECK_REMINDER:              PRIORITY.IMPORTANT,  // oil-check 24h escalation
 

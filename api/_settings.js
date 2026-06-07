@@ -22,6 +22,7 @@ import {
   computeRentalDays,
   computeProtectionPlanCost,
 } from "./_pricing.js";
+import { MAINTENANCE_DEFAULTS } from "./_system-settings-defaults.js";
 
 // Keys that live in the system_settings table and their hardcoded fallback values.
 // These match the DEFAULT_SETTINGS seed in api/v2-system-settings.js.
@@ -37,6 +38,8 @@ export const PRICING_DEFAULTS = {
   // Booking change fee (charged for each change after the first free one)
   booking_change_fee:         25,
 };
+
+export { MAINTENANCE_DEFAULTS };
 
 /**
  * Loads live pricing settings from the Supabase system_settings table.
@@ -99,6 +102,32 @@ export async function loadBooleanSetting(key, defaultVal = true) {
     if (data.value === false || data.value === "false") return false;
     if (data.value === true  || data.value === "true")  return true;
     return defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+/**
+ * Reads a single string setting from the system_settings table.
+ * Returns `defaultVal` when Supabase is unavailable or the key is not found.
+ *
+ * @param {string} key
+ * @param {string} defaultVal
+ * @returns {Promise<string>}
+ */
+export async function loadStringSetting(key, defaultVal = "") {
+  const sb = getSupabaseAdmin();
+  if (!sb) return defaultVal;
+
+  try {
+    const { data, error } = await sb
+      .from("system_settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+    if (error || !data || data.value === null || data.value === undefined) return defaultVal;
+    const normalized = String(data.value).trim();
+    return normalized || defaultVal;
   } catch {
     return defaultVal;
   }

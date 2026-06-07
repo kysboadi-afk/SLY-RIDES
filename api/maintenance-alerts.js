@@ -8,12 +8,12 @@
 // Only sends alerts when the vehicle has an ACTIVE booking (status = "active_rental").
 //
 // Flow per vehicle × service type (oil | brakes | tires):
-//   ≥80%  (warn):     Send driver SMS warning — once per booking per service type
-//   ≥100% (urgent):   Send driver SMS urgent   — once per booking per service type
-//   ≥100% + 48 h after urgent, no service recorded → escalate:
+//   Maintenance thresholds and escalation timing are loaded from system_settings.
+//   warn → Send driver SMS warning — once per booking per service type
+//   urgent → Send driver SMS urgent — once per booking per service type
+//   urgent + configured delay after no response, no service recorded → escalate:
 //     • Driver SMS final notice
-//     • Owner SMS  → OWNER_PHONE (env var, default +18445114059)
-//     • Owner email → OWNER_EMAIL (env var, default slyservices@supports-info.com)
+//     • Owner SMS / email using admin-configured maintenance owner contacts
 //     • booking.maintenance_status = "non_compliant" persisted to bookings.json
 //     • vehicle.data.service_required = true persisted to Supabase
 //
@@ -30,6 +30,7 @@ import { laHour, isoDateInLA } from "./_time.js";
 import { getRentalState } from "./_rental-state.js";
 import { getSmsPriority } from "./_sms-priority.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
+import { loadNumericSetting, loadStringSetting, MAINTENANCE_DEFAULTS } from "./_settings.js";
 import {
   SMS_LOGS_NO_RETURN_DATE,
   sendDedupedSms,
@@ -46,70 +47,67 @@ import {
   render,
   MAINTENANCE_AVAILABILITY_REQUEST,
   MAINTENANCE_AVAILABILITY_URGENT,
+  MAINTENANCE_AVAILABILITY_ESCALATION,
 } from "./_sms-templates.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const OWNER_PHONE = process.env.OWNER_PHONE || "+18445114059";
-const OWNER_EMAIL = process.env.OWNER_EMAIL || "slyservices@supports-info.com";
-
-
-// Daily mileage threshold per driver — alerts owner when exceeded within 24 h.
-// Configurable via DRIVER_MILEAGE_THRESHOLD_DAILY env var (default: 200 miles/day).
-const DRIVER_MILEAGE_THRESHOLD_DAILY = Math.max(
-  1,
-  Number(process.env.DRIVER_MILEAGE_THRESHOLD_DAILY) || 200
-);
-
 // HIGH_DAILY_MILEAGE alert deduplication via sms_logs.
-// Max 2 alerts per booking, with a 60-minute cooldown between them.
 const TEMPLATE_KEY_HIGH_MILEAGE   = "HIGH_DAILY_MILEAGE";
-const MAX_HIGH_MILEAGE_ALERTS     = 2;
-const HIGH_MILEAGE_COOLDOWN_MS    = 60 * 60 * 1000; // 60 minutes
 
-// Hard minimum cooldown for service alerts (warn + urgent).
-// Even if the score-based gate passes, never send the same service-alert
-// template more than once within this window.  This is a last-resort guard
-// against the scoring proximity bonus overcoming the spam penalty when a
-// rental is near its return time.
-const MAINTENANCE_HARD_COOLDOWN_MIN = 24 * 60; // 24 hours in minutes
-const DEFAULT_OIL_INTERVAL_MILES = 3000;
+function normalizePositiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-// Service definitions — intervals match lib/ai/mileage.js
-const SERVICES = [
-  {
-    type:     "oil",
-    col:      "last_oil_change_mileage",
-    interval: 3000,
-    label:    "oil change",
-    warnPct:  0.8,
-  },
-  {
-    type:     "brakes",
-    col:      "last_brake_check_mileage",
-    interval: 10000,
-    label:    "brake inspection",
-    warnPct:  0.8,
-  },
-  {
-    type:     "tires",
-    col:      "last_tire_change_mileage",
-    interval: 20000,
-    label:    "tire replacement",
-    warnPct:  0.8,
-  },
-];
+function normalizePercent(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-function resolveOilIntervalMiles(vehicleData) {
+function resolveOilIntervalMiles(vehicleData, defaultIntervalMiles) {
   const raw = vehicleData?.maintenance_mileage_alert_miles;
   const parsed = Math.round(Number(raw));
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OIL_INTERVAL_MILES;
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultIntervalMiles;
   return parsed;
 }
 
 // Deduplication key helpers (stored in booking.smsSentAt)
 const keyWarn   = (type) => `maint_${type}_warn`;
 const keyUrgent = (type) => `maint_${type}_urgent`;
+const keyEscalate = (type) => `maint_${type}_escalate`;
+
+function buildServices(settings) {
+  return [
+    {
+      type:      "oil",
+      col:       "last_oil_change_mileage",
+      interval:  normalizePositiveNumber(settings.maintenance_oil_interval_miles, MAINTENANCE_DEFAULTS.maintenance_oil_interval_miles),
+      label:     "oil change",
+      warnPct:   normalizePercent(settings.maintenance_oil_warn_pct, MAINTENANCE_DEFAULTS.maintenance_oil_warn_pct),
+      urgentPct: normalizePercent(settings.maintenance_oil_urgent_pct, MAINTENANCE_DEFAULTS.maintenance_oil_urgent_pct),
+    },
+    {
+      type:      "brakes",
+      col:       "last_brake_check_mileage",
+      interval:  normalizePositiveNumber(settings.maintenance_brakes_interval_miles, MAINTENANCE_DEFAULTS.maintenance_brakes_interval_miles),
+      label:     "brake inspection",
+      warnPct:   normalizePercent(settings.maintenance_brakes_warn_pct, MAINTENANCE_DEFAULTS.maintenance_brakes_warn_pct),
+      urgentPct: normalizePercent(settings.maintenance_brakes_urgent_pct, MAINTENANCE_DEFAULTS.maintenance_brakes_urgent_pct),
+    },
+    {
+      type:      "tires",
+      col:       "last_tire_change_mileage",
+      interval:  normalizePositiveNumber(settings.maintenance_tires_interval_miles, MAINTENANCE_DEFAULTS.maintenance_tires_interval_miles),
+      label:     "tire replacement",
+      warnPct:   normalizePercent(settings.maintenance_tires_warn_pct, MAINTENANCE_DEFAULTS.maintenance_tires_warn_pct),
+      urgentPct: normalizePercent(settings.maintenance_tires_urgent_pct, MAINTENANCE_DEFAULTS.maintenance_tires_urgent_pct),
+    },
+  ].map((service) => ({
+    ...service,
+    urgentPct: Math.max(service.warnPct, service.urgentPct),
+  }));
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -187,7 +185,36 @@ export async function wasServiceAlertSent(sb, booking, bookingId, templateKey, s
   }
 }
 
-async function sendOwnerAlertEmail(subject, html) {
+async function getServiceAlertSentAt(sb, booking, bookingId, templateKey, sentAtByKey = null) {
+  const bookingSentAt = booking?.smsSentAt?.[templateKey];
+  if (bookingSentAt) return bookingSentAt;
+  const prefetchedSentAt = sentAtByKey?.get(templateKey);
+  if (prefetchedSentAt) return prefetchedSentAt;
+  if (!sb || !bookingId) return null;
+  try {
+    const { data, error } = await sb
+      .from("sms_logs")
+      .select("sent_at")
+      .eq("booking_id", bookingId)
+      .eq("template_key", templateKey)
+      .eq("return_date_at_send", SMS_LOGS_NO_RETURN_DATE)
+      .maybeSingle();
+    if (error) {
+      console.warn("maintenance-alerts: sms_logs sent_at read failed (non-fatal):", error.message);
+      return null;
+    }
+    return data?.sent_at || null;
+  } catch (err) {
+    console.warn("maintenance-alerts: sms_logs sent_at read failed (non-fatal):", err.message);
+    return null;
+  }
+}
+
+async function sendOwnerAlertEmail(ownerEmail, subject, html) {
+  if (!ownerEmail) {
+    console.warn("maintenance-alerts: owner email not configured — owner email skipped");
+    return false;
+  }
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.warn("maintenance-alerts: SMTP not configured — owner email skipped");
     return false;
@@ -201,7 +228,7 @@ async function sendOwnerAlertEmail(subject, html) {
     });
     await transporter.sendMail({
       from:    process.env.SMTP_USER,
-      to:      OWNER_EMAIL,
+      to:      ownerEmail,
       subject,
       html,
     });
@@ -220,7 +247,7 @@ async function sendOwnerAlertEmail(subject, html) {
  *   2. Cooldown: at least HIGH_MILEAGE_COOLDOWN_MS between consecutive alerts.
  * Fails open (allows the send) if Supabase is unavailable.
  */
-async function checkHighMileageQuota(sb, bookingId) {
+async function checkHighMileageQuota(sb, bookingId, maxAlerts, cooldownMs) {
   if (!sb || !bookingId) return { allowed: true, sentCount: 0 };
   try {
     const { count, error: countErr } = await sb
@@ -235,7 +262,7 @@ async function checkHighMileageQuota(sb, bookingId) {
     }
 
     const sentCount = count || 0;
-    if (sentCount >= MAX_HIGH_MILEAGE_ALERTS) {
+    if (sentCount >= maxAlerts) {
       return { allowed: false, sentCount };
     }
 
@@ -256,7 +283,7 @@ async function checkHighMileageQuota(sb, bookingId) {
 
     if (data) {
       const diffMs = Date.now() - new Date(data.sent_at).getTime();
-      if (diffMs < HIGH_MILEAGE_COOLDOWN_MS) {
+      if (diffMs < cooldownMs) {
         return { allowed: false, sentCount };
       }
     }
@@ -295,11 +322,6 @@ async function logHighMileageAlert(sb, bookingId) {
   }
 }
 
-// ── LA time window ────────────────────────────────────────────────────────────
-
-const WINDOW_START_HOUR = 8;  // 8:00 AM LA
-const WINDOW_END_HOUR   = 19; // 7:00 PM LA (exclusive)
-
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
@@ -319,14 +341,67 @@ export default async function handler(req, res) {
 
   if (maybeSkipScheduledAutomation(req, res, { endpoint: "maintenance-alerts" })) return;
 
+  const settingsEntries = await Promise.all([
+    ["maintenance_alert_window_start_hour", loadNumericSetting("maintenance_alert_window_start_hour", MAINTENANCE_DEFAULTS.maintenance_alert_window_start_hour)],
+    ["maintenance_alert_window_end_hour", loadNumericSetting("maintenance_alert_window_end_hour", MAINTENANCE_DEFAULTS.maintenance_alert_window_end_hour)],
+    ["maintenance_hard_cooldown_minutes", loadNumericSetting("maintenance_hard_cooldown_minutes", MAINTENANCE_DEFAULTS.maintenance_hard_cooldown_minutes)],
+    ["maintenance_escalation_delay_hours", loadNumericSetting("maintenance_escalation_delay_hours", MAINTENANCE_DEFAULTS.maintenance_escalation_delay_hours)],
+    ["maintenance_high_mileage_threshold_daily", loadNumericSetting("maintenance_high_mileage_threshold_daily", MAINTENANCE_DEFAULTS.maintenance_high_mileage_threshold_daily)],
+    ["maintenance_high_mileage_max_alerts", loadNumericSetting("maintenance_high_mileage_max_alerts", MAINTENANCE_DEFAULTS.maintenance_high_mileage_max_alerts)],
+    ["maintenance_high_mileage_cooldown_minutes", loadNumericSetting("maintenance_high_mileage_cooldown_minutes", MAINTENANCE_DEFAULTS.maintenance_high_mileage_cooldown_minutes)],
+    ["maintenance_owner_phone", loadStringSetting("maintenance_owner_phone", process.env.OWNER_PHONE || MAINTENANCE_DEFAULTS.maintenance_owner_phone)],
+    ["maintenance_owner_email", loadStringSetting("maintenance_owner_email", process.env.OWNER_EMAIL || MAINTENANCE_DEFAULTS.maintenance_owner_email)],
+    ["maintenance_oil_interval_miles", loadNumericSetting("maintenance_oil_interval_miles", MAINTENANCE_DEFAULTS.maintenance_oil_interval_miles)],
+    ["maintenance_brakes_interval_miles", loadNumericSetting("maintenance_brakes_interval_miles", MAINTENANCE_DEFAULTS.maintenance_brakes_interval_miles)],
+    ["maintenance_tires_interval_miles", loadNumericSetting("maintenance_tires_interval_miles", MAINTENANCE_DEFAULTS.maintenance_tires_interval_miles)],
+    ["maintenance_oil_warn_pct", loadNumericSetting("maintenance_oil_warn_pct", MAINTENANCE_DEFAULTS.maintenance_oil_warn_pct)],
+    ["maintenance_oil_urgent_pct", loadNumericSetting("maintenance_oil_urgent_pct", MAINTENANCE_DEFAULTS.maintenance_oil_urgent_pct)],
+    ["maintenance_brakes_warn_pct", loadNumericSetting("maintenance_brakes_warn_pct", MAINTENANCE_DEFAULTS.maintenance_brakes_warn_pct)],
+    ["maintenance_brakes_urgent_pct", loadNumericSetting("maintenance_brakes_urgent_pct", MAINTENANCE_DEFAULTS.maintenance_brakes_urgent_pct)],
+    ["maintenance_tires_warn_pct", loadNumericSetting("maintenance_tires_warn_pct", MAINTENANCE_DEFAULTS.maintenance_tires_warn_pct)],
+    ["maintenance_tires_urgent_pct", loadNumericSetting("maintenance_tires_urgent_pct", MAINTENANCE_DEFAULTS.maintenance_tires_urgent_pct)],
+  ]);
+  const maintenanceSettings = Object.fromEntries(settingsEntries);
+  const services = buildServices(maintenanceSettings);
+  const windowStartHour = Math.max(0, Math.floor(normalizePositiveNumber(
+    maintenanceSettings.maintenance_alert_window_start_hour,
+    MAINTENANCE_DEFAULTS.maintenance_alert_window_start_hour
+  )));
+  const windowEndHour = Math.min(24, Math.ceil(normalizePositiveNumber(
+    maintenanceSettings.maintenance_alert_window_end_hour,
+    MAINTENANCE_DEFAULTS.maintenance_alert_window_end_hour
+  )));
+  const maintenanceHardCooldownMin = Math.round(normalizePositiveNumber(
+    maintenanceSettings.maintenance_hard_cooldown_minutes,
+    MAINTENANCE_DEFAULTS.maintenance_hard_cooldown_minutes
+  ));
+  const maintenanceEscalationDelayHours = normalizePositiveNumber(
+    maintenanceSettings.maintenance_escalation_delay_hours,
+    MAINTENANCE_DEFAULTS.maintenance_escalation_delay_hours
+  );
+  const driverMileageThresholdDaily = normalizePositiveNumber(
+    maintenanceSettings.maintenance_high_mileage_threshold_daily,
+    MAINTENANCE_DEFAULTS.maintenance_high_mileage_threshold_daily
+  );
+  const maxHighMileageAlerts = Math.max(1, Math.round(normalizePositiveNumber(
+    maintenanceSettings.maintenance_high_mileage_max_alerts,
+    MAINTENANCE_DEFAULTS.maintenance_high_mileage_max_alerts
+  )));
+  const highMileageCooldownMs = Math.round(normalizePositiveNumber(
+    maintenanceSettings.maintenance_high_mileage_cooldown_minutes,
+    MAINTENANCE_DEFAULTS.maintenance_high_mileage_cooldown_minutes
+  )) * 60 * 1000;
+  const ownerPhone = maintenanceSettings.maintenance_owner_phone || "";
+  const ownerEmail = maintenanceSettings.maintenance_owner_email || "";
+
   // Enforce 8 AM – 7 PM LA send window for cron-triggered runs.
   // Manual POST bypasses the window to allow out-of-hours testing.
   if (req.method === "GET") {
     const hour = laHour();
-    if (hour < WINDOW_START_HOUR || hour >= WINDOW_END_HOUR) {
+    if (hour < windowStartHour || hour >= windowEndHour) {
       return res.status(200).json({
         skipped: true,
-        reason:  `Outside send window (${WINDOW_START_HOUR}:00–${WINDOW_END_HOUR}:00 LA). Current LA hour: ${hour}.`,
+        reason:  `Outside send window (${windowStartHour}:00–${windowEndHour}:00 LA). Current LA hour: ${hour}.`,
       });
     }
   }
@@ -457,6 +532,7 @@ export default async function handler(req, res) {
     // ── 3. Process each vehicle ──────────────────────────────────────────────
     const sentMarks      = [];   // { vehicleId, id, key } — dedup marks
     const bookingUpdates = [];   // { vehicleId, id, patch } — maintenance_status
+    const vehicleUpdates = new Map();
     let   alertsSent     = 0;
 
     for (const row of trackedVehicles) {
@@ -502,7 +578,7 @@ export default async function handler(req, res) {
         continue;
       }
       const phone     = booking.phone;
-      const oilIntervalMiles = resolveOilIntervalMiles(row.data);
+      const oilIntervalMiles = resolveOilIntervalMiles(row.data, maintenanceSettings.maintenance_oil_interval_miles);
 
       // ── Compute time-proximity context ────────────────────────────────────
       const { end_datetime: returnDt, minutesToReturn: rawMinutesToReturn } =
@@ -524,17 +600,21 @@ export default async function handler(req, res) {
       // booking (no time limit) so we can guard against repeat sends even when
       // the bookings.json smsSentAt write failed (e.g. GITHUB_TOKEN absent).
       const supabaseAlreadySentKeys = new Set();
+      const supabaseSentAtByKey = new Map();
       if (sb && bookingId) {
         try {
-          const allServiceKeys = SERVICES.flatMap((s) => [keyWarn(s.type), keyUrgent(s.type)]);
+          const allServiceKeys = services.flatMap((s) => [keyWarn(s.type), keyUrgent(s.type), keyEscalate(s.type)]);
           const { data: flagRows, error: flagErr } = await sb
             .from("sms_logs")
-            .select("template_key")
+            .select("template_key, sent_at")
             .eq("booking_id",          bookingId)
             .eq("return_date_at_send", "1970-01-01")
             .in("template_key",        allServiceKeys);
           if (!flagErr && flagRows) {
-            for (const r of flagRows) supabaseAlreadySentKeys.add(r.template_key);
+            for (const r of flagRows) {
+              supabaseAlreadySentKeys.add(r.template_key);
+              if (r.sent_at) supabaseSentAtByKey.set(r.template_key, r.sent_at);
+            }
           } else if (flagErr) {
             console.warn(`maintenance-alerts: sms_logs dedup prefetch failed for ${bookingId} (non-fatal):`, flagErr.message);
           }
@@ -543,7 +623,7 @@ export default async function handler(req, res) {
         }
       }
 
-      for (const svc of SERVICES) {
+      for (const svc of services) {
         const serviceInterval = svc.type === "oil" ? oilIntervalMiles : svc.interval;
         // Resolve last-service mileage for this specific service type
         const lastMi  = row[svc.col] != null
@@ -556,16 +636,33 @@ export default async function handler(req, res) {
 
         const kWarn   = keyWarn(svc.type);
         const kUrgent = keyUrgent(svc.type);
+        const kEscalate = keyEscalate(svc.type);
 
-        if (pct >= 1.0) {
-          // Overdue (100%+) — high priority
-          if (!(await wasServiceAlertSent(sb, booking, bookingId, kUrgent, supabaseAlreadySentKeys))) {
+        if (pct >= svc.urgentPct) {
+          const urgentSentAt = await getServiceAlertSentAt(sb, booking, bookingId, kUrgent, supabaseSentAtByKey);
+          if (!urgentSentAt) {
             candidates.push({
               key:      kUrgent,
               template: MAINTENANCE_AVAILABILITY_URGENT,
+              service:  svc,
             });
+          } else if (!(await wasServiceAlertSent(sb, booking, bookingId, kEscalate, supabaseAlreadySentKeys))) {
+            const elapsedHours = hoursSince(urgentSentAt);
+            if (elapsedHours >= maintenanceEscalationDelayHours) {
+              candidates.push({
+                key:        kEscalate,
+                template:   MAINTENANCE_AVAILABILITY_ESCALATION,
+                service:    svc,
+                escalation: true,
+              });
+            } else {
+              console.log(
+                `maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ${svc.type} escalation window not elapsed ` +
+                `(sent ${elapsedHours.toFixed(1)}h ago, need ${maintenanceEscalationDelayHours}h)`
+              );
+            }
           } else {
-            console.log(`maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ${svc.type} urgent already sent`);
+            console.log(`maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ${svc.type} escalation already sent`);
           }
         } else {
           // Due soon (80%–100%) — standard priority
@@ -573,6 +670,7 @@ export default async function handler(req, res) {
             candidates.push({
               key:      kWarn,
               template: MAINTENANCE_AVAILABILITY_REQUEST,
+              service:  svc,
             });
           } else {
             console.log(`maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ${svc.type} warn already sent`);
@@ -621,13 +719,13 @@ export default async function handler(req, res) {
       // same message to fire on every cron cycle.
       if (
         winner.ctx.sameTemplateRecentMinutes !== undefined &&
-        winner.ctx.sameTemplateRecentMinutes < MAINTENANCE_HARD_COOLDOWN_MIN
+        winner.ctx.sameTemplateRecentMinutes < maintenanceHardCooldownMin
       ) {
         console.log(
           `maintenance-alerts: SKIP vehicle ${vid} booking ${bookingId}: ` +
           `hard cooldown active for ${winner.key} ` +
           `(sent ${Math.round(winner.ctx.sameTemplateRecentMinutes)} min ago, ` +
-          `min=${MAINTENANCE_HARD_COOLDOWN_MIN})`
+          `min=${maintenanceHardCooldownMin})`
         );
         continue;
       }
@@ -656,6 +754,27 @@ export default async function handler(req, res) {
       if (sent) {
         sentMarks.push({ vehicleId: vid, id: bookingId, key: winner.key });
         alertsSent++;
+        if (winner.escalation) {
+          const ownerMsg =
+            `⚠️ Maintenance escalation: ${name} needs ${winner.service?.label || "service"} ` +
+            `for booking ${bookingId}. Driver: ${customerName}.`;
+          await safeSendSms(ownerPhone, ownerMsg);
+          await sendOwnerAlertEmail(
+            ownerEmail,
+            `⚠️ Maintenance Escalation — ${name}`,
+            `<p>A maintenance alert escalated without a renter response.</p>
+<p><strong>Vehicle:</strong> ${name}</p>
+<p><strong>Booking ID:</strong> ${bookingId}</p>
+<p><strong>Driver:</strong> ${customerName}</p>
+<p><strong>Service:</strong> ${winner.service?.label || "maintenance"}</p>`
+          );
+          bookingUpdates.push({
+            vehicleId: vid,
+            id: bookingId,
+            patch: { maintenance_status: "non_compliant" },
+          });
+          vehicleUpdates.set(vid, { data: { ...(row.data || {}), service_required: true } });
+        }
       }
       if (scoredCandidates.length > 1) {
         const suppressed = scoredCandidates
@@ -671,8 +790,8 @@ export default async function handler(req, res) {
 
     // ── 4. Per-driver daily mileage excess alerts ────────────────────────────
     // Sum GPS trip_log distances from the last 24 h for each vehicle that has
-    // an active booking.  When a driver's daily total exceeds
-    // DRIVER_MILEAGE_THRESHOLD_DAILY, the fleet owner is alerted by SMS.
+    // an active booking. When a driver's daily total exceeds the configured
+    // threshold, the fleet owner is alerted by SMS.
     //
     // Deduplication key: "driver_mileage_alert" stored in booking.smsSentAt.
     // One alert is sent per booking per 24-hour window (cleared on a new day).
@@ -694,7 +813,7 @@ export default async function handler(req, res) {
         }
 
         for (const [vid, dailyMiles] of Object.entries(milesBy)) {
-          if (dailyMiles < DRIVER_MILEAGE_THRESHOLD_DAILY) continue;
+          if (dailyMiles < driverMileageThresholdDaily) continue;
 
           const booking     = activeBookingByVehicle[vid];
           const bookingId   = resolveBookingIdentity(booking);
@@ -709,7 +828,7 @@ export default async function handler(req, res) {
           // Dedup: enforce max-2 cap and 60-min cooldown via sms_logs.
           // Falls back to the 24h smsSentAt flag when Supabase is unavailable.
           const alertKey   = "driver_mileage_alert";
-          const { allowed } = await checkHighMileageQuota(sb, bookingId);
+          const { allowed } = await checkHighMileageQuota(sb, bookingId, maxHighMileageAlerts, highMileageCooldownMs);
           if (!allowed) continue;
 
           // Secondary fallback: legacy 24h smsSentAt guard (for when Supabase is down)
@@ -718,18 +837,19 @@ export default async function handler(req, res) {
 
           const msg =
             `⚠️ High mileage alert: ${driverName} drove ${Math.round(dailyMiles)} mi in 24h ` +
-            `on ${vehicleName} (threshold: ${DRIVER_MILEAGE_THRESHOLD_DAILY} mi/day). ` +
+            `on ${vehicleName} (threshold: ${driverMileageThresholdDaily} mi/day). ` +
             `Booking: ${bookingId}. Driver phone: ${driverPhone}.`;
 
-          const smsSent = await safeSendSms(OWNER_PHONE, msg);
+          const smsSent = await safeSendSms(ownerPhone, msg);
           await sendOwnerAlertEmail(
+            ownerEmail,
             `⚠️ High Daily Mileage — ${driverName} / ${vehicleName}`,
             `<p>⚠️ A driver has exceeded the daily mileage threshold.</p>
 <p><strong>Driver:</strong> ${driverName}</p>
 <p><strong>Driver phone:</strong> ${driverPhone}</p>
 <p><strong>Vehicle:</strong> ${vehicleName}</p>
 <p><strong>Miles driven (last 24 h):</strong> ${Math.round(dailyMiles).toLocaleString()} mi</p>
-<p><strong>Threshold:</strong> ${DRIVER_MILEAGE_THRESHOLD_DAILY.toLocaleString()} mi/day</p>
+<p><strong>Threshold:</strong> ${driverMileageThresholdDaily.toLocaleString()} mi/day</p>
 <p><strong>Booking ID:</strong> ${bookingId}</p>
 <p>Please review driver behavior and vehicle condition.</p>`
           );
@@ -744,6 +864,18 @@ export default async function handler(req, res) {
       }
     } catch (driverAlertErr) {
       console.warn("maintenance-alerts: driver daily mileage check failed (non-fatal):", driverAlertErr.message);
+    }
+
+    if (vehicleUpdates.size > 0) {
+      await Promise.all([...vehicleUpdates.entries()].map(async ([vehicleId, patch]) => {
+        const { error } = await sb
+          .from("vehicles")
+          .update(patch)
+          .eq("vehicle_id", vehicleId);
+        if (error) {
+          console.warn(`maintenance-alerts: failed to set service_required for ${vehicleId}:`, error.message);
+        }
+      }));
     }
 
     // ── 5. Persist dedup marks + booking patches atomically ─────────────────

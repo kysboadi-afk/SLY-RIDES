@@ -28,6 +28,7 @@ import { getSmsPriority } from "./_sms-priority.js";
 import { isSchemaError } from "./_error-helpers.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
 import { loadNumericSetting } from "./_settings.js";
+import { MAINTENANCE_DEFAULTS } from "./_system-settings-defaults.js";
 import {
   computeSmsScoreWithBreakdown,
   computeEffectiveThreshold,
@@ -78,19 +79,7 @@ const MSG_MAINTENANCE_REQUIRED =
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
-const MIN_RENTAL_DAYS      = 3;    // trigger only for rentals >= 3 days
-const DAYS_SINCE_CHECK     = 5;    // trigger if >= 5 days since last check
-const DEFAULT_MILES_SINCE_CHECK = 500; // fallback when system_settings row is absent
-const COOLDOWN_HOURS       = 24;   // minimum hours between any two oil check SMS
-const WINDOW_START_HOUR    = 8;    // 8:00 AM LA — start of send window
-const WINDOW_END_HOUR      = 19;   // 7:00 PM LA — end of send window (exclusive)
-const ESCALATE_AFTER_HOURS = 24;   // hours of no-reply before escalating
-
-// Avg miles/day thresholds for mileage-based SMS triggers.
-const AVG_MILES_OIL_RISK_THRESHOLD  = 150; // >= 150 mi/day → OIL_CHECK_RISK
-const AVG_MILES_MAINT_REQ_THRESHOLD = 250; // >= 250 mi/day → MAINTENANCE_REQUIRED
 const MS_PER_DAY                    = 86_400_000;
-const DEFAULT_OIL_CHANGE_INTERVAL_MILES = 3000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,7 +94,7 @@ function hoursSince(earlier, later = new Date().toISOString()) {
 
 function resolveOilChangeIntervalMiles(raw) {
   const parsed = Math.round(Number(raw));
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OIL_CHANGE_INTERVAL_MILES;
+  if (!Number.isFinite(parsed) || parsed <= 0) return MAINTENANCE_DEFAULTS.maintenance_oil_interval_miles;
   return parsed;
 }
 
@@ -221,27 +210,41 @@ export default async function handler(req, res) {
 
   if (maybeSkipScheduledAutomation(req, res, { endpoint: "oil-check-cron" })) return;
 
+  const [
+    minRentalDays,
+    daysSinceCheckThreshold,
+    milesSinceCheckThreshold,
+    cooldownHours,
+    windowStartHour,
+    windowEndHour,
+    escalateAfterHours,
+    avgMilesOilRiskThreshold,
+    avgMilesMaintReqThreshold,
+  ] = await Promise.all([
+    loadNumericSetting("oil_check_min_rental_days", MAINTENANCE_DEFAULTS.oil_check_min_rental_days),
+    loadNumericSetting("oil_check_days_since_check", MAINTENANCE_DEFAULTS.oil_check_days_since_check),
+    loadNumericSetting("oil_check_miles_interval", MAINTENANCE_DEFAULTS.oil_check_miles_interval),
+    loadNumericSetting("oil_check_cooldown_hours", MAINTENANCE_DEFAULTS.oil_check_cooldown_hours),
+    loadNumericSetting("oil_check_window_start_hour", MAINTENANCE_DEFAULTS.oil_check_window_start_hour),
+    loadNumericSetting("oil_check_window_end_hour", MAINTENANCE_DEFAULTS.oil_check_window_end_hour),
+    loadNumericSetting("oil_check_escalation_delay_hours", MAINTENANCE_DEFAULTS.oil_check_escalation_delay_hours),
+    loadNumericSetting("oil_check_avg_miles_risk_threshold", MAINTENANCE_DEFAULTS.oil_check_avg_miles_risk_threshold),
+    loadNumericSetting("oil_check_avg_miles_maintenance_required_threshold", MAINTENANCE_DEFAULTS.oil_check_avg_miles_maintenance_required_threshold),
+  ]);
+
   // Enforce 8 AM – 7 PM LA send window for cron-triggered runs.
   // Manual POST bypasses the window to allow out-of-hours testing.
   if (req.method === "GET") {
     const hour = laHour();
-    if (hour < WINDOW_START_HOUR || hour >= WINDOW_END_HOUR) {
+    if (hour < windowStartHour || hour >= windowEndHour) {
       return res.status(200).json({
         skipped: true,
-        reason:  `Outside send window (${WINDOW_START_HOUR}:00–${WINDOW_END_HOUR}:00 LA). Current LA hour: ${hour}.`,
+        reason:  `Outside send window (${windowStartHour}:00–${windowEndHour}:00 LA). Current LA hour: ${hour}.`,
       });
     }
   }
 
   const startedAt = Date.now();
-
-  // Load the configurable mileage threshold from system_settings (admin-editable).
-  // Falls back to DEFAULT_MILES_SINCE_CHECK when Supabase is unavailable or the
-  // key has not been seeded yet so the cron always has a safe value to use.
-  const MILES_SINCE_CHECK = await loadNumericSetting(
-    "oil_check_miles_interval",
-    DEFAULT_MILES_SINCE_CHECK
-  );
 
   const sb = getSupabaseAdmin();
   if (!sb) {
@@ -386,10 +389,10 @@ export default async function handler(req, res) {
     }
 
     // ── Anti-spam: skip if last message was < 24 h ago ────────────────────
-    if (lastRequest && hoursSince(lastRequest) < COOLDOWN_HOURS) {
+    if (lastRequest && hoursSince(lastRequest) < cooldownHours) {
       results.skipped_spam++;
       const hrsSince = hoursSince(lastRequest);
-      console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: cooldown active (last request ${hrsSince.toFixed(1)}h ago, cooldown=${COOLDOWN_HOURS}h)`);
+      console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: cooldown active (last request ${hrsSince.toFixed(1)}h ago, cooldown=${cooldownHours}h)`);
       continue;
     }
 
@@ -403,9 +406,9 @@ export default async function handler(req, res) {
       await getRentalState(sb, bookingRef);
     const minutesToReturn = rawMinutesToReturn !== null ? rawMinutesToReturn : undefined;
 
-    if (rentalDays < MIN_RENTAL_DAYS) {
+    if (rentalDays < minRentalDays) {
       results.skipped_no_trigger++;
-      console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: rental_days=${rentalDays} < MIN_RENTAL_DAYS=${MIN_RENTAL_DAYS}`);
+      console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: rental_days=${rentalDays} < min_rental_days=${minRentalDays}`);
       continue;
     }
 
@@ -421,9 +424,9 @@ export default async function handler(req, res) {
       }
 
       // Check if enough time has passed since the last request to escalate
-      if (!lastRequest || hoursSince(lastRequest) < ESCALATE_AFTER_HOURS) {
+      if (!lastRequest || hoursSince(lastRequest) < escalateAfterHours) {
         results.skipped_spam++;
-        console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: escalation window not elapsed (last=${lastRequest || "never"}, need ${ESCALATE_AFTER_HOURS}h)`);
+        console.log(`oil-check-cron: SKIP ${bookingRef || bookingId}: escalation window not elapsed (last=${lastRequest || "never"}, need ${escalateAfterHours}h)`);
         continue;
       }
 
@@ -491,8 +494,8 @@ export default async function handler(req, res) {
       ? currentMileage - lastCheckMileage
       : Infinity; // no mileage data — treat as overdue
 
-    const triggerByDays  = daysSinceCheck  >= DAYS_SINCE_CHECK;
-    const triggerByMiles = milesSinceCheck >= MILES_SINCE_CHECK;
+    const triggerByDays  = daysSinceCheck  >= daysSinceCheckThreshold;
+    const triggerByMiles = milesSinceCheck >= milesSinceCheckThreshold;
 
     if (!triggerByDays && !triggerByMiles) {
       results.skipped_no_trigger++;
@@ -500,7 +503,7 @@ export default async function handler(req, res) {
       const milesDisplay = milesSinceCheck === Infinity ? "N/A" : milesSinceCheck.toFixed(0);
       console.log(
         `oil-check-cron: SKIP ${bookingRef || bookingId}: threshold not met ` +
-        `(days_since=${daysDisplay}/${DAYS_SINCE_CHECK}, miles_since=${milesDisplay}/${MILES_SINCE_CHECK})`
+        `(days_since=${daysDisplay}/${daysSinceCheckThreshold}, miles_since=${milesDisplay}/${milesSinceCheckThreshold})`
       );
       continue;
     }
@@ -605,10 +608,10 @@ export default async function handler(req, res) {
     const avgMilesPerDay  = milesDriven / daysSincePickup;
 
     let templateKey, msgToSend;
-    if (avgMilesPerDay >= AVG_MILES_MAINT_REQ_THRESHOLD) {
+    if (avgMilesPerDay >= avgMilesMaintReqThreshold) {
       templateKey = "MAINTENANCE_REQUIRED";
       msgToSend   = MSG_MAINTENANCE_REQUIRED;
-    } else if (avgMilesPerDay >= AVG_MILES_OIL_RISK_THRESHOLD) {
+    } else if (avgMilesPerDay >= avgMilesOilRiskThreshold) {
       templateKey = "OIL_CHECK_RISK";
       msgToSend   = MSG_OIL_CHECK_RISK;
     } else {

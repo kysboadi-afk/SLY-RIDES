@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  MAINTENANCE_DEFAULTS,
   PRICING_DEFAULTS,
   computeCamryAmountFromSettings,
   computeBreakdownLinesFromSettings,
@@ -36,6 +37,14 @@ test("PRICING_DEFAULTS.camry_monthly_rate = 1300", () => {
 
 test("PRICING_DEFAULTS.la_tax_rate = 0.1025", () => {
   assert.equal(PRICING_DEFAULTS.la_tax_rate, 0.1025);
+});
+
+test("MAINTENANCE_DEFAULTS.maintenance_oil_interval_miles = 3000", () => {
+  assert.equal(MAINTENANCE_DEFAULTS.maintenance_oil_interval_miles, 3000);
+});
+
+test("MAINTENANCE_DEFAULTS.maintenance_escalation_delay_hours = 48", () => {
+  assert.equal(MAINTENANCE_DEFAULTS.maintenance_escalation_delay_hours, 48);
 });
 
 // ─── computeCamryAmountFromSettings (default rates) ─────────────────────────
