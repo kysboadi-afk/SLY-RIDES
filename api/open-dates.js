@@ -18,7 +18,6 @@
 // requested range.
 
 import { adminErrorMessage } from "./_error-helpers.js";
-import { updateJsonFileWithRetry } from "./_github-retry.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { extractAdminSecret, isAdminAuthorized, isAdminConfigured } from "./_admin-auth.js";
 
@@ -77,26 +76,17 @@ export default async function handler(req, res) {
     try {
       const sb = getSupabaseAdmin();
       if (sb) {
-        const { count: lockedCount, error: countErr } = await sb
-          .from("blocked_dates")
-          .select("id", { head: true, count: "exact" })
-          .eq("vehicle_id", vehicleId)
-          .lte("start_date", to)
-          .gte("end_date", from)
-          .eq("reason", "booking");
-        if (!countErr) locked = Number(lockedCount || 0);
-
-        const { error: sbErr } = await sb
+        const { data: removedRows, error: sbErr } = await sb
           .from("blocked_dates")
           .delete()
           .eq("vehicle_id", vehicleId)
           .lte("start_date", to)
           .gte("end_date", from)
-          .or("reason.is.null,reason.neq.booking");
+          .select("id");
         if (sbErr) {
           console.warn("open-dates: Supabase delete failed (non-fatal):", sbErr.message);
         } else {
-          removed = 1;
+          removed = Array.isArray(removedRows) ? removedRows.length : 0;
         }
       }
     } catch (sbErr) {
