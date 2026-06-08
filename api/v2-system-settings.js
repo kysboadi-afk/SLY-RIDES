@@ -102,20 +102,21 @@ export default async function handler(req, res) {
       if (!sb) return res.status(200).json({ settings: DEFAULT_SETTINGS });
 
       try {
-        let q = sb.from("system_settings").select("*").order("category").order("key");
-        if (body.category) q = q.eq("category", body.category);
-        const { data, error } = await q;
+        const { data, error } = await sb.from("system_settings").select("*").order("category").order("key");
         if (error) {
           // Table may not exist yet — return defaults so the Settings page is usable
           console.error("v2-system-settings list error:", error.message);
           return res.status(200).json({ settings: DEFAULT_SETTINGS });
         }
 
-        // If the table exists but is empty, auto-seed the defaults.
-        // The upsert uses ignoreDuplicates:true so concurrent requests are safe —
-        // the second request's upsert becomes a no-op on the already-seeded rows.
-        if (!data || data.length === 0) {
-          const seedRecords = DEFAULT_SETTINGS.map((s) => ({
+        let effectiveSettings = data || [];
+        const existingKeys = new Set(effectiveSettings.map((row) => String(row?.key || "")));
+        const missingDefaults = DEFAULT_SETTINGS.filter((row) => !existingKeys.has(String(row.key)));
+
+        // Backfill any missing defaults (including first-run empty-table cases) so
+        // new system-setting keys become visible without manual SQL migrations.
+        if (missingDefaults.length > 0) {
+          const seedRecords = missingDefaults.map((s) => ({
             key:         s.key,
             value:       s.value,
             description: s.description,
@@ -131,10 +132,18 @@ export default async function handler(req, res) {
           // Re-fetch (or fall back to in-memory defaults on seed failure)
           const { data: seeded, error: refetchErr } = await sb.from("system_settings")
             .select("*").order("category").order("key");
-          return res.status(200).json({ settings: refetchErr ? DEFAULT_SETTINGS : (seeded || DEFAULT_SETTINGS) });
+          if (!refetchErr && seeded) {
+            effectiveSettings = seeded;
+          } else if (!effectiveSettings.length) {
+            effectiveSettings = DEFAULT_SETTINGS;
+          }
         }
 
-        return res.status(200).json({ settings: data });
+        if (body.category) {
+          effectiveSettings = effectiveSettings.filter((s) => String(s?.category || "") === String(body.category));
+        }
+
+        return res.status(200).json({ settings: effectiveSettings });
       } catch (qErr) {
         console.error("v2-system-settings list query error:", qErr);
         return res.status(200).json({ settings: DEFAULT_SETTINGS });
