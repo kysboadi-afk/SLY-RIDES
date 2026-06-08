@@ -294,6 +294,31 @@ async function fetchBookingFromSupabase(bookingRef) {
   };
 }
 
+async function fetchBookingByPaymentIntentFromSupabase(paymentIntentId) {
+  const sb = getSupabaseAdmin();
+  if (!sb || !paymentIntentId) return null;
+  const { data, error } = await sb
+    .from("bookings")
+    .select("*")
+    .eq("payment_intent_id", paymentIntentId)
+    .maybeSingle();
+  if (error) {
+    console.error("[manage-booking] BOOKING_LOOKUP_ERROR: queried payment_intent_id =", paymentIntentId, "| error.code =", error.code, "| error.message =", error.message);
+    return null;
+  }
+  if (!data) return null;
+  return {
+    __selectFallbackUsed: false,
+    manage_token: null,
+    balance_payment_link: "",
+    pending_change: null,
+    has_protection_plan: false,
+    protection_plan_tier: null,
+    payment_intent_id: null,
+    ...data,
+  };
+}
+
 /**
  * Load the booked-dates.json ranges for a vehicle from GitHub.
  * Returns an empty array on any error.
@@ -644,17 +669,7 @@ export default async function handler(req, res) {
     console.log("[manage-booking] GET: fetchBookingFromSupabase(", bookingId, ") =", row ? "FOUND" : "NULL");
 
     // 2. Safety fallback: Supabase by payment_intent_id
-    if (!row) {
-      const sb = getSupabaseAdmin();
-      if (sb) {
-        const { data: altRow } = await sb
-          .from("bookings")
-          .select("*")
-          .eq("payment_intent_id", bookingId)
-          .maybeSingle();
-        if (altRow) row = altRow;
-      }
-    }
+    if (!row) row = await fetchBookingByPaymentIntentFromSupabase(bookingId);
 
     // 3. Last-resort fallback: bookings.json (legacy GitHub-stored bookings)
     if (!row) {
@@ -846,11 +861,13 @@ export default async function handler(req, res) {
     if (!process.env.STRIPE_PUBLISHABLE_KEY) {
       return res.status(500).json({ error: "Payment processing is temporarily unavailable. Please contact us at (844) 511-4059." });
     }
-    const row = await fetchBookingFromSupabase(bookingId);
+    let row = await fetchBookingFromSupabase(bookingId);
+    if (!row) row = await fetchBookingByPaymentIntentFromSupabase(bookingId);
     if (!row) return res.status(404).json({ error: "Booking not found" });
     if (!renterOwnsBooking(row, renterClaims)) {
       return res.status(403).json({ error: "Renter session does not match this booking." });
     }
+    const canonicalBookingId = String(row.booking_ref || bookingId || "").trim() || bookingId;
     if (!MANAGE_ELIGIBLE_STATUSES.includes(row.status)) {
       return res.status(409).json({ error: "This booking is not eligible for balance payment." });
     }
@@ -867,7 +884,7 @@ export default async function handler(req, res) {
     // nothing to pay.
     if (!Number.isFinite(resolvedBalance) || resolvedBalance <= 0) {
       try {
-        const ledger = await getLedgerSummary(getSupabaseAdmin(), { bookingId });
+        const ledger = await getLedgerSummary(getSupabaseAdmin(), { bookingId: canonicalBookingId });
         const ledgerBalance = Number(ledger.remaining_balance || 0);
         if (Number.isFinite(ledgerBalance) && ledgerBalance > 0) {
           resolvedBalance = ledgerBalance;
@@ -933,8 +950,8 @@ export default async function handler(req, res) {
       automatic_payment_methods: { enabled: true },
       metadata: {
         payment_type: isPartialPayment ? "partial_balance" : "rental_balance",
-        booking_id: bookingId,
-        original_booking_id: bookingId,
+        booking_id: canonicalBookingId,
+        original_booking_id: canonicalBookingId,
         vehicle_id: uiVehicle || "",
         vehicle_name: vehicleData?.name || uiVehicle || "",
         renter_name: row.customer_name || "",
