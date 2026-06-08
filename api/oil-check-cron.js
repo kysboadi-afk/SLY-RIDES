@@ -27,7 +27,7 @@ import { getRentalState } from "./_rental-state.js";
 import { getSmsPriority } from "./_sms-priority.js";
 import { isSchemaError } from "./_error-helpers.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
-import { loadNumericSetting } from "./_settings.js";
+import { loadBooleanSetting, loadNumericSetting } from "./_settings.js";
 import { MAINTENANCE_DEFAULTS } from "./_system-settings-defaults.js";
 import {
   computeSmsScoreWithBreakdown,
@@ -80,6 +80,17 @@ const MSG_MAINTENANCE_REQUIRED =
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
 const MS_PER_DAY                    = 86_400_000;
+const IN_CLAUSE_BATCH_SIZE          = 100;
+
+function chunkArray(values, chunkSize) {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const size = Math.max(1, Math.floor(Number(chunkSize)) || 1);
+  const chunks = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -211,6 +222,7 @@ export default async function handler(req, res) {
   if (maybeSkipScheduledAutomation(req, res, { endpoint: "oil-check-cron" })) return;
 
   const [
+    oilCheckAlertsEnabled,
     minRentalDays,
     daysSinceCheckThreshold,
     milesSinceCheckThreshold,
@@ -221,6 +233,7 @@ export default async function handler(req, res) {
     avgMilesOilRiskThreshold,
     avgMilesMaintReqThreshold,
   ] = await Promise.all([
+    loadBooleanSetting("oil_check_alerts_enabled", MAINTENANCE_DEFAULTS.oil_check_alerts_enabled),
     loadNumericSetting("oil_check_min_rental_days", MAINTENANCE_DEFAULTS.oil_check_min_rental_days),
     loadNumericSetting("oil_check_days_since_check", MAINTENANCE_DEFAULTS.oil_check_days_since_check),
     loadNumericSetting("oil_check_miles_interval", MAINTENANCE_DEFAULTS.oil_check_miles_interval),
@@ -231,6 +244,9 @@ export default async function handler(req, res) {
     loadNumericSetting("oil_check_avg_miles_risk_threshold", MAINTENANCE_DEFAULTS.oil_check_avg_miles_risk_threshold),
     loadNumericSetting("oil_check_avg_miles_maintenance_required_threshold", MAINTENANCE_DEFAULTS.oil_check_avg_miles_maintenance_required_threshold),
   ]);
+  if (oilCheckAlertsEnabled === false) {
+    return res.status(200).json({ skipped: true, reason: "oil_check_alerts_enabled is false in system settings." });
+  }
 
   // Enforce 8 AM – 7 PM LA send window for cron-triggered runs.
   // Manual POST bypasses the window to allow out-of-hours testing.
@@ -287,10 +303,21 @@ export default async function handler(req, res) {
   // ── Load vehicle_state for all relevant vehicles ──────────────────────────
   const vehicleIds = [...new Set(bookings.map((b) => b.vehicle_id).filter(Boolean))];
 
-  const { data: vStates, error: vsErr } = await sb
-    .from("vehicle_state")
-    .select("vehicle_id, last_oil_check_at, last_oil_check_mileage, current_mileage")
-    .in("vehicle_id", vehicleIds);
+  const vStates = [];
+  let vsErr = null;
+  for (const vehicleIdBatch of chunkArray(vehicleIds, IN_CLAUSE_BATCH_SIZE)) {
+    const { data: batchStates, error: batchErr } = await sb
+      .from("vehicle_state")
+      .select("vehicle_id, last_oil_check_at, last_oil_check_mileage, current_mileage")
+      .in("vehicle_id", vehicleIdBatch);
+    if (batchErr) {
+      vsErr = batchErr;
+      break;
+    }
+    if (Array.isArray(batchStates) && batchStates.length > 0) {
+      vStates.push(...batchStates);
+    }
+  }
 
   const missingVehicleStateSchema = !!vsErr && isSchemaError(vsErr);
   if (vsErr) {
@@ -313,10 +340,16 @@ export default async function handler(req, res) {
   // ── Load vehicle service-mileage data (for merged-message detection) ───────
   // Used to determine whether a vehicle-specific oil-change mileage interval is due at the time
   // of the oil-check trigger so that both requests can be merged into one SMS.
-  const { data: vehicleRows } = await sb
-    .from("vehicles")
-    .select("vehicle_id, mileage, last_oil_change_mileage, data")
-    .in("vehicle_id", vehicleIds);
+  const vehicleRows = [];
+  for (const vehicleIdBatch of chunkArray(vehicleIds, IN_CLAUSE_BATCH_SIZE)) {
+    const { data: batchVehicles } = await sb
+      .from("vehicles")
+      .select("vehicle_id, mileage, last_oil_change_mileage, data")
+      .in("vehicle_id", vehicleIdBatch);
+    if (Array.isArray(batchVehicles) && batchVehicles.length > 0) {
+      vehicleRows.push(...batchVehicles);
+    }
+  }
 
   const vehicleByVehicle = {};
   for (const v of vehicleRows || []) {
@@ -336,11 +369,17 @@ export default async function handler(req, res) {
   // records the odometer reading at rental activation.  Combined with the live
   // current_mileage from vehicle_state this gives us avgMilesPerDay.
   const bookingRefs = bookings.map((b) => b.booking_ref).filter(Boolean);
-  const { data: activeTrips } = await sb
-    .from("trips")
-    .select("booking_id, start_mileage")
-    .in("booking_id", bookingRefs)
-    .is("end_mileage", null);
+  const activeTrips = [];
+  for (const bookingRefBatch of chunkArray(bookingRefs, IN_CLAUSE_BATCH_SIZE)) {
+    const { data: batchTrips } = await sb
+      .from("trips")
+      .select("booking_id, start_mileage")
+      .in("booking_id", bookingRefBatch)
+      .is("end_mileage", null);
+    if (Array.isArray(batchTrips) && batchTrips.length > 0) {
+      activeTrips.push(...batchTrips);
+    }
+  }
 
   const startMileageByRef = {};
   for (const t of activeTrips || []) {

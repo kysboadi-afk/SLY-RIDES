@@ -2,6 +2,9 @@
 // handlers and the admin system-settings endpoint.
 
 export const MAINTENANCE_DEFAULT_SETTINGS = [
+  { key: "maintenance_alerts_enabled", value: true, description: "Enable maintenance-alerts automation endpoint for renter/owner maintenance notifications", category: "maintenance" },
+  { key: "oil_check_alerts_enabled", value: true, description: "Enable oil-check-cron automation endpoint for oil-check and high-mileage SMS notifications", category: "maintenance" },
+  { key: "missed_maintenance_alerts_enabled", value: true, description: "Enable missed-maintenance automation endpoint for missed appointment notifications", category: "maintenance" },
   { key: "oil_check_miles_interval", value: 500, description: "Miles driven since last oil check before an oil-check SMS is sent to the active renter", category: "maintenance" },
   { key: "maintenance_oil_interval_miles", value: 3000, description: "Fleet default oil-change mileage interval when a vehicle-specific override is not set", category: "maintenance" },
   { key: "maintenance_brakes_interval_miles", value: 10000, description: "Fleet default brake inspection mileage interval", category: "maintenance" },
