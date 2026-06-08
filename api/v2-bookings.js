@@ -1957,18 +1957,18 @@ export default withAdminAuth(async function handler(req, res) {
           deletePickupDate = bookingRow.pickup_date || null;
           deleteReturnDate = bookingRow.return_date || null;
 
+          const { error: bdErr } = await sbDelete
+            .from("blocked_dates")
+            .delete()
+            .eq("booking_ref", canonicalBookingId);
+          if (bdErr && !isSchemaError(bdErr)) throw bdErr;
+
           if (doHardDelete) {
             const { error: rrErr } = await sbDelete
               .from("revenue_records")
               .delete()
               .eq("booking_id", canonicalBookingId);
             if (rrErr && !isSchemaError(rrErr)) throw rrErr;
-
-            const { error: bdErr } = await sbDelete
-              .from("blocked_dates")
-              .delete()
-              .eq("booking_ref", canonicalBookingId);
-            if (bdErr && !isSchemaError(bdErr)) throw bdErr;
 
             const { error: bookingDelErr } = await sbDelete
               .from("bookings")

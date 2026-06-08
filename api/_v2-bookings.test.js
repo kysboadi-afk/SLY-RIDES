@@ -2033,6 +2033,16 @@ test("delete+restore: soft-delete in Supabase hides booking from list until rest
       customers: { id: "cu-soft-1", name: "Soft User", phone: "+15550000003", email: "soft@example.com" },
     },
   ];
+  const blockedRows = [
+    {
+      id: 1,
+      booking_ref: "bk-soft-1",
+      vehicle_id: "camry",
+      start_date: "2026-05-17",
+      end_date: "2026-05-18",
+      reason: "booking",
+    },
+  ];
   const makeBookingsChain = () => {
     const filters = [];
     const chain = {
@@ -2040,10 +2050,17 @@ test("delete+restore: soft-delete in Supabase hides booking from list until rest
       _payload: null,
       select() { this._op = "select"; return this; },
       update(payload) { this._op = "update"; this._payload = payload || {}; return this; },
+      delete() { this._op = "delete"; return this; },
       eq(column, value) {
         if (this._op === "update") {
           for (const row of rows) {
             if (row[column] === value) Object.assign(row, this._payload);
+          }
+          return Promise.resolve({ error: null });
+        }
+        if (this._op === "delete") {
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            if (rows[i][column] === value) rows.splice(i, 1);
           }
           return Promise.resolve({ error: null });
         }
@@ -2066,10 +2083,27 @@ test("delete+restore: soft-delete in Supabase hides booking from list until rest
     };
     return chain;
   };
+  const makeBlockedDatesChain = () => {
+    const chain = {
+      _op: "select",
+      delete() { this._op = "delete"; return this; },
+      eq(column, value) {
+        if (this._op === "delete") {
+          for (let i = blockedRows.length - 1; i >= 0; i -= 1) {
+            if (blockedRows[i][column] === value) blockedRows.splice(i, 1);
+          }
+          return Promise.resolve({ error: null });
+        }
+        return this;
+      },
+    };
+    return chain;
+  };
   const makeRevenueChain = () => ({ select() { return this; }, in() { return Promise.resolve({ data: [], error: null }); } });
   supabaseMockState.client = {
     from: (table) => {
       if (table === "bookings") return makeBookingsChain();
+      if (table === "blocked_dates") return makeBlockedDatesChain();
       if (table === "revenue_records_effective") return makeRevenueChain();
       return makeBookingsChain();
     },
@@ -2085,6 +2119,7 @@ test("delete+restore: soft-delete in Supabase hides booking from list until rest
     await handler(makeReq({ secret: "test-admin-secret", action: "delete", bookingId: "bk-soft-1" }), delRes);
     assert.equal(delRes._status, 200);
     assert.equal(delRes._body.mode, "soft_delete");
+    assert.equal(blockedRows.length, 0, "soft-delete should clear booking-linked blocked dates");
 
     const listAfterDelete = makeRes();
     await handler(makeReq({ secret: "test-admin-secret", action: "list" }), listAfterDelete);
