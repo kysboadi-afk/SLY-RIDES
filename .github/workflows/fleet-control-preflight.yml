@@ -67,6 +67,13 @@ jobs:
 
           const line = (label, val) => console.log(`  ${label.padEnd(45)} ${val}`);
           const sep  = () => console.log("-".repeat(65));
+          const fmtError = (err) => {
+            if (!err) return "none";
+            if (typeof err === "string") return err;
+            const parts = [err.code, err.message, err.details, err.hint].filter(Boolean);
+            return parts.length ? parts.join(" | ") : JSON.stringify(err);
+          };
+          const fmtStatus = (check) => check?.ok === true ? "✅  OK" : "❌  FAIL";
 
           console.log("\n════════════════════════════════════════════════════════════════");
           console.log("  FLEET CONTROL MIGRATION PREFLIGHT REPORT");
@@ -86,6 +93,27 @@ jobs:
           } else {
             line("Columns match?",     p.schemaColumnsMatch     ? "✅  YES" : "❌  NO — migration BLOCKED");
             line("Constraints match?", p.schemaConstraintsMatch ? "✅  YES" : "❌  NO — migration BLOCKED");
+          }
+
+          const srcRequired = Array.isArray(p.sourceRequiredTables) ? p.sourceRequiredTables : [];
+          const tgtRequired = Array.isArray(p.targetRequiredTables) ? p.targetRequiredTables : [];
+          const requiredTables = [...new Set([
+            ...srcRequired.map((c) => c.table),
+            ...tgtRequired.map((c) => c.table),
+          ])];
+          if (requiredTables.length) {
+            const srcMap = new Map(srcRequired.map((c) => [c.table, c]));
+            const tgtMap = new Map(tgtRequired.map((c) => [c.table, c]));
+            sep();
+            console.log("  REQUIRED TABLE ACCESS CHECKS");
+            sep();
+            line("Tables checked:", requiredTables.join(", "));
+            for (const table of requiredTables) {
+              const sourceCheck = srcMap.get(table);
+              const targetCheck = tgtMap.get(table);
+              line(`${table} [source]`, `${fmtStatus(sourceCheck)}${sourceCheck?.ok ? "" : ` — ${fmtError(sourceCheck?.error)}`}`);
+              line(`${table} [target]`, `${fmtStatus(targetCheck)}${targetCheck?.ok ? "" : ` — ${fmtError(targetCheck?.error)}`}`);
+            }
           }
 
           sep();

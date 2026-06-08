@@ -117,7 +117,14 @@ async function validateRequiredTables(client) {
       return {
         table,
         ok: !error,
-        error: error?.message || null,
+        error: error
+          ? {
+              message: error.message || null,
+              code: error.code || null,
+              details: error.details || null,
+              hint: error.hint || null,
+            }
+          : null,
       };
     })
   );
@@ -183,7 +190,13 @@ async function main() {
   log.preflight.requiredTablesAccessible = sourceTableValidation.allAccessible && targetTableValidation.allAccessible;
 
   if (!log.preflight.requiredTablesAccessible) {
-    throw new Error("Required public tables are not accessible in source/target. Stop before migration.");
+    const requiredTablesError = new Error("Required public tables are not accessible in source/target. Stop before migration.");
+    requiredTablesError.preflight = {
+      sourceRequiredTables: sourceTableValidation.checks,
+      targetRequiredTables: targetTableValidation.checks,
+      requiredTablesAccessible: false,
+    };
+    throw requiredTablesError;
   }
 
   const [sourcePackages, targetPackages] = await Promise.all([
@@ -308,7 +321,7 @@ main().catch((error) => {
     targetProjectRef: getProjectRef(process.env.TARGET_SUPABASE_URL || process.env.SUPABASE_URL || ""),
     maintenanceConfirmed: confirmedFreeze,
     schemaValidationMode: "public_table_access",
-    preflight: {},
+    preflight: error?.preflight && typeof error.preflight === "object" ? error.preflight : {},
     migration: {},
     validation: {},
     error: {
