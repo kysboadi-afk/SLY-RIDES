@@ -8,6 +8,13 @@ import assert from "node:assert/strict";
 process.env.ADMIN_SECRET = "test-admin-secret";
 process.env.GITHUB_TOKEN = "test-github-token";
 
+const supabaseMockState = { client: null };
+mock.module("./_supabase.js", {
+  namedExports: {
+    getSupabaseAdmin: () => supabaseMockState.client,
+  },
+});
+
 // Dynamic import after env vars are set
 const { default: handler } = await import("./open-dates.js");
 
@@ -260,6 +267,114 @@ test("does not make GitHub API calls (Phase 4: GitHub writes disabled)", async (
 
   assert.equal(res._status, 200);
   assert.equal(githubCalls.length, 0, "Phase 4: no GitHub API calls should be made");
+});
+
+test("unblock removes booking-generated blocked dates for overlapping range", async () => {
+  const blockedRows = [
+    { id: 1, vehicle_id: "camry", start_date: "2026-03-03", end_date: "2026-03-04", reason: "booking" },
+    { id: 2, vehicle_id: "camry", start_date: "2026-03-10", end_date: "2026-03-11", reason: "booking" },
+  ];
+  const makeBlockedDatesChain = () => {
+    const filters = [];
+    const chain = {
+      _op: "select",
+      delete() { this._op = "delete"; return this; },
+      eq(column, value) { filters.push((row) => row[column] === value); return this; },
+      lte(column, value) { filters.push((row) => row[column] <= value); return this; },
+      gte(column, value) { filters.push((row) => row[column] >= value); return this; },
+      select() {
+        if (this._op !== "delete") return Promise.resolve({ data: [], error: null });
+        const removed = [];
+        for (let i = blockedRows.length - 1; i >= 0; i -= 1) {
+          if (filters.every((fn) => fn(blockedRows[i]))) {
+            removed.push({ id: blockedRows[i].id });
+            blockedRows.splice(i, 1);
+          }
+        }
+        return Promise.resolve({ data: removed, error: null });
+      },
+    };
+    return chain;
+  };
+
+  supabaseMockState.client = {
+    from: (table) => {
+      if (table === "blocked_dates") return makeBlockedDatesChain();
+      return makeBlockedDatesChain();
+    },
+  };
+
+  try {
+    const req = makeReq("POST", {
+      secret: "test-admin-secret",
+      vehicleId: "camry",
+      from: "2026-03-01",
+      to: "2026-03-05",
+    });
+    const res = makeRes();
+    await handler(req, res);
+
+    assert.equal(res._status, 200);
+    assert.equal(res._body.success, true);
+    assert.equal(res._body.removed, 1);
+    assert.equal(res._body.locked, 0);
+    assert.equal(blockedRows.length, 1);
+    assert.equal(blockedRows[0].id, 2);
+  } finally {
+    supabaseMockState.client = null;
+  }
+});
+
+test("unblock all vehicles clears blocked dates across all vehicles", async () => {
+  const blockedRows = [
+    { id: 1, vehicle_id: "camry", start_date: "2026-03-03", end_date: "2026-03-04", reason: "booking" },
+    { id: 2, vehicle_id: "corolla", start_date: "2026-04-10", end_date: "2026-04-11", reason: "maintenance" },
+  ];
+  const makeBlockedDatesChain = () => {
+    const filters = [];
+    const chain = {
+      _op: "select",
+      delete() { this._op = "delete"; return this; },
+      eq(column, value) { filters.push((row) => row[column] === value); return this; },
+      lte(column, value) { filters.push((row) => row[column] <= value); return this; },
+      gte(column, value) { filters.push((row) => row[column] >= value); return this; },
+      select() {
+        if (this._op !== "delete") return Promise.resolve({ data: [], error: null });
+        const removed = [];
+        for (let i = blockedRows.length - 1; i >= 0; i -= 1) {
+          if (filters.every((fn) => fn(blockedRows[i]))) {
+            removed.push({ id: blockedRows[i].id });
+            blockedRows.splice(i, 1);
+          }
+        }
+        return Promise.resolve({ data: removed, error: null });
+      },
+    };
+    return chain;
+  };
+
+  supabaseMockState.client = {
+    from: (table) => {
+      if (table === "blocked_dates") return makeBlockedDatesChain();
+      return makeBlockedDatesChain();
+    },
+  };
+
+  try {
+    const req = makeReq("POST", {
+      secret: "test-admin-secret",
+      vehicleId: "__all__",
+    });
+    const res = makeRes();
+    await handler(req, res);
+
+    assert.equal(res._status, 200);
+    assert.equal(res._body.success, true);
+    assert.equal(res._body.removed, 2);
+    assert.equal(blockedRows.length, 0);
+  } finally {
+    supabaseMockState.client = null;
+  }
 });
 
 // Phase 4: GitHub GET/PUT errors are no longer relevant since we don't call GitHub.

@@ -150,9 +150,25 @@ async function mergeSupabaseBlockedDates(sb, map) {
   const today = getLADate();
   const nowMinsLA = getLAMinutes();
   try {
+    const activeBookingRefs = new Set();
+    const { data: activeBookings, error: activeBookingError } = await sb
+      .from("bookings")
+      .select("booking_ref, vehicle_id")
+      .in("status", ACTIVE_STATUSES)
+      .not("booking_ref", "is", null);
+    if (activeBookingError) {
+      console.warn("booked-dates: Supabase active bookings query error (non-fatal):", activeBookingError.message);
+    } else {
+      for (const row of activeBookings || []) {
+        const vid = row.vehicle_id ? String(row.vehicle_id) : "";
+        const ref = row.booking_ref ? String(row.booking_ref) : "";
+        if (vid && ref) activeBookingRefs.add(`${vid}::${ref}`);
+      }
+    }
+
     const { data: rows, error } = await sb
       .from("blocked_dates")
-      .select("vehicle_id, start_date, end_date, end_time");
+      .select("vehicle_id, booking_ref, reason, start_date, end_date, end_time");
 
     if (error) {
       console.warn("booked-dates: Supabase blocked_dates query error (non-fatal):", error.message);
@@ -162,6 +178,12 @@ async function mergeSupabaseBlockedDates(sb, map) {
       const vid = row.vehicle_id;
       if (!vid) continue;
       if (!map[vid]) map[vid] = [];
+
+      const reason = row.reason ? String(row.reason) : "";
+      const bookingRef = row.booking_ref ? String(row.booking_ref) : "";
+      if (reason === "booking" && (!bookingRef || !activeBookingRefs.has(`${vid}::${bookingRef}`))) {
+        continue;
+      }
 
       const endDate = row.end_date ? String(row.end_date).split("T")[0] : null; // strip timestamp if present
       if (!endDate) continue;
