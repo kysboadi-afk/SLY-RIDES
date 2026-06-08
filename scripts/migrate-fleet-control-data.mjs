@@ -302,6 +302,25 @@ async function main() {
 }
 
 main().catch((error) => {
+  const failureLog = {
+    mode: execute ? "execute" : "preflight",
+    sourceProjectRef: getProjectRef(process.env.SOURCE_SUPABASE_URL || ""),
+    targetProjectRef: getProjectRef(process.env.TARGET_SUPABASE_URL || process.env.SUPABASE_URL || ""),
+    maintenanceConfirmed: confirmedFreeze,
+    schemaValidationMode: "public_table_access",
+    preflight: {},
+    migration: {},
+    validation: {},
+    error: {
+      message: error?.message || String(error),
+    },
+  };
+  try {
+    const logFile = writeMigrationLog(failureLog);
+    console.error(`[fleet-control-migration] wrote failure log: ${logFile}`);
+  } catch (logError) {
+    console.error("[fleet-control-migration] failed to write failure log:", logError?.message || logError);
+  }
   console.error("[fleet-control-migration] failed:", error?.message || error);
   process.exitCode = 1;
 });
