@@ -863,6 +863,38 @@ export default async function handler(req, res) {
     }
     let row = await fetchBookingFromSupabase(bookingId);
     if (!row) row = await fetchBookingByPaymentIntentFromSupabase(bookingId);
+    if (!row) {
+      try {
+        const { data } = await loadBookings();
+        vehicleLoop: for (const vehicleId of Object.keys(data || {})) {
+          const match = (data[vehicleId] || []).find(
+            (b) => b.bookingId === bookingId || b.paymentIntentId === bookingId
+          );
+          if (match) {
+            row = {
+              booking_ref:       match.bookingId,
+              vehicle_id:        match.vehicleId,
+              pickup_date:       match.pickupDate,
+              return_date:       match.returnDate,
+              pickup_time:       match.pickupTime,
+              return_time:       match.returnTime,
+              status:            match.status,
+              payment_status:    "partial",
+              total_price:       match.totalPrice,
+              deposit_paid:      match.depositPaid || 0,
+              remaining_balance: match.balanceDue  || 0,
+              customer_name:     match.name,
+              customer_email:    match.email,
+              customer_phone:    match.phone,
+              change_count:      match.extensionCount || 0,
+            };
+            break vehicleLoop;
+          }
+        }
+      } catch (jsonErr) {
+        console.warn("[manage-booking] create_balance_payment_intent: bookings.json fallback failed (non-fatal):", jsonErr.message);
+      }
+    }
     if (!row) return res.status(404).json({ error: "Booking not found" });
     if (!renterOwnsBooking(row, renterClaims)) {
       return res.status(403).json({ error: "Renter session does not match this booking." });
