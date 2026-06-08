@@ -167,6 +167,21 @@ test("active blocked_dates row makes vehicle unavailable with date-only next_ava
   assert.ok(res._body.camry.next_available_display.includes("Jun"), "next_available_display should contain the month");
 });
 
+test("booking-generated blocked_dates row is ignored when booking is no longer active", async () => {
+  resetMock();
+  sbMock.blockedDateRows = [
+    { vehicle_id: "camry", booking_ref: "bk-stale", reason: "booking", end_date: "2026-06-10" },
+  ];
+  sbMock.bookingRows = [];
+
+  const res = makeRes();
+  await handler(makeReq(), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.camry?.available, true, "stale booking-linked block should not keep vehicle unavailable");
+  assert.equal(res._body.camry?.available_at, null);
+});
+
 test("maintenance vehicle is unavailable even with no active blocks", async () => {
   resetMock();
   sbMock.vehiclesRows = [

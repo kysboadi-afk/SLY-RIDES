@@ -305,14 +305,49 @@ export default async function handler(req, res) {
 
       const { data: blockedRows, error: blockedError } = await sb
         .from("blocked_dates")
-        .select("vehicle_id, end_date, end_time")
+        .select("vehicle_id, booking_ref, reason, end_date, end_time")
         .in("vehicle_id", vehicleIds)
         .gte("end_date", today);
 
       if (blockedError) throw new Error(blockedError.message || "blocked_dates query failed");
 
+      let activeBookingRefKeys = null;
+      try {
+        const { data: activeRefRows, error: activeRefError } = await sb
+          .from("bookings")
+          .select("vehicle_id, booking_ref")
+          .in("vehicle_id", vehicleIds)
+          .in("status", ACTIVE_BOOKING_STATUSES)
+          .not("booking_ref", "is", null);
+        if (activeRefError) {
+          console.warn("fleet-status: active booking refs query failed (non-fatal):", activeRefError.message);
+        } else {
+          activeBookingRefKeys = new Set(
+            (activeRefRows || [])
+              .map((row) => {
+                const vid = row.vehicle_id ? String(row.vehicle_id) : "";
+                const ref = row.booking_ref ? String(row.booking_ref) : "";
+                return vid && ref ? `${vid}::${ref}` : "";
+              })
+              .filter(Boolean)
+          );
+        }
+      } catch (activeRefErr) {
+        console.warn("fleet-status: active booking refs lookup failed (non-fatal):", activeRefErr.message);
+      }
+
+      const bookingFilteredRows = (blockedRows || []).filter((row) => {
+        const reason = row.reason ? String(row.reason) : "";
+        if (reason !== "booking") return true;
+        if (!activeBookingRefKeys) return true;
+        const vid = row.vehicle_id ? String(row.vehicle_id) : "";
+        const ref = row.booking_ref ? String(row.booking_ref) : "";
+        if (!vid || !ref) return false;
+        return activeBookingRefKeys.has(`${vid}::${ref}`);
+      });
+
       // ── 3. Derive latest block per vehicle, then expire time-aware blocks ─
-      const latestByVehicle = computeLatestBlockByVehicle(blockedRows || []);
+      const latestByVehicle = computeLatestBlockByVehicle(bookingFilteredRows);
 
       // Post-filter: if a block's end_date is today and its end_time has
       // already passed (in LA time), the vehicle is available again even
