@@ -4186,7 +4186,8 @@ function populateVehicleFilters(vehicles) {
   for (const id of formIds) {
     const el = document.getElementById(id);
     if (!el) continue;
-    el.innerHTML = '<option value="">Select vehicle…</option>' + formOpts;
+    const allDatesOption = id === 'ub-vehicle' ? '<option value="__all__">All vehicles (all dates)</option>' : '';
+    el.innerHTML = '<option value="">Select vehicle…</option>' + allDatesOption + formOpts;
   }
 
   // ── Manual-booking dropdown (shows daily rate in label) ────────────────────
@@ -12630,13 +12631,19 @@ function blockDates() {
 
 function unblockDates() {
   const vehicleId = document.getElementById('ub-vehicle').value;
-  const from      = document.getElementById('ub-from').value;
-  const to        = document.getElementById('ub-to').value;
+  let from        = document.getElementById('ub-from').value;
+  let to          = document.getElementById('ub-to').value;
+  const allVehicles = vehicleId === '__all__';
   if (!vehicleId) { showToast('Please select a vehicle.', 'error'); return; }
-  if (!from)      { showToast('Please select a start date.', 'error'); return; }
-  if (!to)        { showToast('Please select an end date.', 'error'); return; }
+  if (allVehicles) {
+    from = '1900-01-01';
+    to = '2999-12-31';
+  } else {
+    if (!from)      { showToast('Please select a start date.', 'error'); return; }
+    if (!to)        { showToast('Please select an end date.', 'error'); return; }
+  }
   const btn = document.getElementById('bd-unblock-btn');
-  unblockBlockedDateRange(vehicleId, from, to, btn, '🔓 Unblock Dates');
+  unblockBlockedDateRange(vehicleId, from, to, btn, allVehicles ? '🔓 Unblock All Dates' : '🔓 Unblock Dates');
 }
 
 function unblockBlockedDateRange(vehicleId, from, to, btn, resetText = 'Unblock') {
@@ -12644,7 +12651,11 @@ function unblockBlockedDateRange(vehicleId, from, to, btn, resetText = 'Unblock'
     showToast('Missing unblock range details.', 'error');
     return;
   }
-  if (!confirm('Unblock ' + esc(from) + ' → ' + esc(to) + ' for ' + esc(getVehicleLabel(vehicleId)) + '?')) return;
+  const allVehicles = vehicleId === '__all__';
+  const confirmMessage = allVehicles
+    ? 'Unblock all blocked dates for all vehicles?'
+    : ('Unblock ' + esc(from) + ' → ' + esc(to) + ' for ' + esc(getVehicleLabel(vehicleId)) + '?');
+  if (!confirm(confirmMessage)) return;
 
   const hasBtn = !!btn;
   if (hasBtn) {
@@ -12665,11 +12676,13 @@ function unblockBlockedDateRange(vehicleId, from, to, btn, resetText = 'Unblock'
         if (data.locked > 0) {
           showToast('Matched range is booking-generated and cannot be manually unblocked.', 'info');
         } else {
-          showToast('No overlapping blocked ranges found for those dates.', 'info');
+          showToast(allVehicles ? 'No blocked ranges were found to clear.' : 'No overlapping blocked ranges found for those dates.', 'info');
         }
       } else {
         const suffix = data.locked > 0 ? ' Booking-generated ranges remained locked.' : '';
-        showToast('✅ Dates unblocked. Those dates are now available for booking.' + suffix, 'success');
+        showToast(allVehicles
+          ? '✅ All blocked dates cleared. Vehicles are now available for booking unless tied to active bookings.'
+          : ('✅ Dates unblocked. Those dates are now available for booking.' + suffix), 'success');
         loadBlockedDates();
       }
     })

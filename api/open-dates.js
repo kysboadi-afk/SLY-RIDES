@@ -53,18 +53,32 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  const normalizedVehicleId = typeof vehicleId === "string" ? vehicleId.trim() : "";
+  const allVehiclesRequested = normalizedVehicleId === "__all__" || normalizedVehicleId === "*" || normalizedVehicleId.toLowerCase() === "all";
+
   // Validate inputs
-  if (!vehicleId || typeof vehicleId !== "string") {
+  if (!allVehiclesRequested && !normalizedVehicleId) {
     return res.status(400).json({ error: "vehicleId is required" });
   }
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  if (!from || !ISO_DATE.test(from)) {
+  if (!allVehiclesRequested && !from) {
     return res.status(400).json({ error: "from must be a date in YYYY-MM-DD format" });
   }
-  if (!to || !ISO_DATE.test(to)) {
+  if (!allVehiclesRequested && !to) {
     return res.status(400).json({ error: "to must be a date in YYYY-MM-DD format" });
   }
-  if (from > to) {
+  if (from && !ISO_DATE.test(from)) {
+    return res.status(400).json({ error: "from must be a date in YYYY-MM-DD format" });
+  }
+  if (to && !ISO_DATE.test(to)) {
+    return res.status(400).json({ error: "to must be a date in YYYY-MM-DD format" });
+  }
+  const normalizedFrom = from || "1900-01-01";
+  const normalizedTo = to || "2999-12-31";
+  if (!ISO_DATE.test(normalizedFrom) || !ISO_DATE.test(normalizedTo)) {
+    return res.status(400).json({ error: "from/to must be dates in YYYY-MM-DD format" });
+  }
+  if (normalizedFrom > normalizedTo) {
     return res.status(400).json({ error: "from must not be after to" });
   }
 
@@ -76,12 +90,15 @@ export default async function handler(req, res) {
     try {
       const sb = getSupabaseAdmin();
       if (sb) {
-        const { data: removedRows, error: sbErr } = await sb
+        let query = sb
           .from("blocked_dates")
-          .delete()
-          .eq("vehicle_id", vehicleId)
-          .lte("start_date", to)
-          .gte("end_date", from)
+          .delete();
+        if (!allVehiclesRequested) {
+          query = query.eq("vehicle_id", normalizedVehicleId);
+        }
+        const { data: removedRows, error: sbErr } = await query
+          .lte("start_date", normalizedTo)
+          .gte("end_date", normalizedFrom)
           .select("id");
         if (sbErr) {
           console.warn("open-dates: Supabase delete failed (non-fatal):", sbErr.message);
