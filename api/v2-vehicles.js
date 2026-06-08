@@ -30,6 +30,8 @@ const ALLOWED_CATEGORIES    = ["car"];
 const MAX_VEHICLE_NAME_LEN  = 200;
 const MAX_PURCHASE_DATE_LEN = 20;
 const DEFAULT_MAINTENANCE_MILEAGE_ALERT_MILES = 3000;
+const DEFAULT_MAINTENANCE_BRAKES_INTERVAL_MILES = 10000;
+const DEFAULT_MAINTENANCE_TIRES_INTERVAL_MILES = 20000;
 
 // vehicleId must be 2–50 lowercase letters, digits, hyphens, or underscores.
 const VEHICLE_ID_RE = /^[a-z0-9_-]{2,50}$/;
@@ -40,6 +42,15 @@ const BOUNCIE_IMEI_RE = /^\d{15}$/;
 function parseMaintenanceMileageAlertMiles(value) {
   if (value === undefined || value === null || value === "") {
     return DEFAULT_MAINTENANCE_MILEAGE_ALERT_MILES;
+  }
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseMaintenanceIntervalMiles(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
   }
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -379,6 +390,7 @@ export default async function handler(req, res) {
         "vehicle_name", "vehicle_year", "type", "category", "cover_image", "gallery_images",
         "bouncie_device_id", "vin", "scarcity_text", "make",
         "earnings_tagline", "earnings_title", "earnings_row1", "earnings_cta",
+        "maintenance_mileage_alert_miles", "maintenance_brakes_interval_miles", "maintenance_tires_interval_miles",
       ];
       for (const f of allowedUpdateFields) {
         if (Object.prototype.hasOwnProperty.call(updates, f)) {
@@ -398,6 +410,12 @@ export default async function handler(req, res) {
               return res.status(400).json({ error: `${f} must be a non-negative number` });
             }
             safeUpdates[f] = Math.round(n * 100) / 100;
+          } else if (["maintenance_mileage_alert_miles", "maintenance_brakes_interval_miles", "maintenance_tires_interval_miles"].includes(f)) {
+            const parsed = Math.round(Number(val));
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+              return res.status(400).json({ error: `${f} must be a positive number` });
+            }
+            safeUpdates[f] = parsed;
           } else if (f === "cover_image") {
             safeUpdates[f] = typeof val === "string" ? val.trim().slice(0, 500) : "";
           } else if (f === "gallery_images") {
@@ -548,7 +566,7 @@ export default async function handler(req, res) {
 
     // ── CREATE ──────────────────────────────────────────────────────────────
     if (action === "create") {
-      const { vehicleId, vehicleName, type, category, vehicleYear, purchasePrice, purchaseDate, status, coverImage, galleryImages, bouncieDeviceId, vin, scarcityText, make, dailyRate, weeklyRate, biweeklyRate, monthlyRate, earningsTagline, earningsTitle, earningsRow1, earningsCta, hourlyTiers, maintenanceMileageAlertMiles } = body;
+      const { vehicleId, vehicleName, type, category, vehicleYear, purchasePrice, purchaseDate, status, coverImage, galleryImages, bouncieDeviceId, vin, scarcityText, make, dailyRate, weeklyRate, biweeklyRate, monthlyRate, earningsTagline, earningsTitle, earningsRow1, earningsCta, hourlyTiers, maintenanceMileageAlertMiles, maintenanceBrakesIntervalMiles, maintenanceTiresIntervalMiles } = body;
 
       if (!vehicleId || !VEHICLE_ID_RE.test(vehicleId)) {
         return res.status(400).json({ error: "vehicleId must be 2–50 lowercase letters, digits, hyphens, or underscores" });
@@ -604,6 +622,20 @@ export default async function handler(req, res) {
       if (parsedMaintenanceMileageAlertMiles == null) {
         return res.status(400).json({ error: "maintenanceMileageAlertMiles must be a positive number" });
       }
+      const parsedMaintenanceBrakesIntervalMiles = parseMaintenanceIntervalMiles(
+        maintenanceBrakesIntervalMiles,
+        DEFAULT_MAINTENANCE_BRAKES_INTERVAL_MILES
+      );
+      if (parsedMaintenanceBrakesIntervalMiles == null) {
+        return res.status(400).json({ error: "maintenanceBrakesIntervalMiles must be a positive number" });
+      }
+      const parsedMaintenanceTiresIntervalMiles = parseMaintenanceIntervalMiles(
+        maintenanceTiresIntervalMiles,
+        DEFAULT_MAINTENANCE_TIRES_INTERVAL_MILES
+      );
+      if (parsedMaintenanceTiresIntervalMiles == null) {
+        return res.status(400).json({ error: "maintenanceTiresIntervalMiles must be a positive number" });
+      }
 
       // Parse pricing fields once so they can go into both the data blob and
       // the dedicated vehicle_pricing table (two sources stay in sync at creation).
@@ -645,6 +677,8 @@ export default async function handler(req, res) {
         ...(parsedMonthly  ? { monthly_price:  parsedMonthly }  : {}),
         ...(hourlyTiers && typeof hourlyTiers === 'object' ? { hourlyTiers } : {}),
         maintenance_mileage_alert_miles: parsedMaintenanceMileageAlertMiles,
+        maintenance_brakes_interval_miles: parsedMaintenanceBrakesIntervalMiles,
+        maintenance_tires_interval_miles: parsedMaintenanceTiresIntervalMiles,
       };
 
       if (supabase) {

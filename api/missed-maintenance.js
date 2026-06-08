@@ -28,8 +28,7 @@
 // Optional:
 //   TEXTMAGIC_USERNAME + TEXTMAGIC_API_KEY
 //   SMTP_HOST/PORT/USER/PASS
-//   OWNER_PHONE  — default +18445114059
-//   OWNER_EMAIL  — default slyservices@supports-info.com
+//   OWNER_PHONE / OWNER_EMAIL — optional fallback owner contacts
 //   ADMIN_SECRET / CRON_SECRET — for manual POST trigger
 //   VERCEL_URL   — used to build scheduling links
 
@@ -40,9 +39,7 @@ import { loadBookings, saveBookings, normalizePhone, isNetworkError } from "./_b
 import { updateJsonFileWithRetry } from "./_github-retry.js";
 import { adminErrorMessage } from "./_error-helpers.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
-
-const OWNER_PHONE = process.env.OWNER_PHONE || "+18445114059";
-const OWNER_EMAIL = process.env.OWNER_EMAIL || "slyservices@supports-info.com";
+import { loadBooleanSetting, loadStringSetting, MAINTENANCE_DEFAULTS } from "./_settings.js";
 
 const SITE_BASE = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -118,7 +115,8 @@ async function safeSendSms(phone, text) {
   }
 }
 
-async function sendOwnerAlertEmail(subject, html) {
+async function sendOwnerAlertEmail(ownerEmail, subject, html) {
+  if (!ownerEmail) return false;
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return false;
   try {
     const transporter = nodemailer.createTransport({
@@ -129,7 +127,7 @@ async function sendOwnerAlertEmail(subject, html) {
     });
     await transporter.sendMail({
       from:    process.env.SMTP_USER,
-      to:      OWNER_EMAIL,
+      to:      ownerEmail,
       subject,
       html,
     });
@@ -157,6 +155,15 @@ export default async function handler(req, res) {
   }
 
   if (maybeSkipScheduledAutomation(req, res, { endpoint: "missed-maintenance" })) return;
+
+  const [alertsEnabled, ownerPhone, ownerEmail] = await Promise.all([
+    loadBooleanSetting("missed_maintenance_alerts_enabled", MAINTENANCE_DEFAULTS.missed_maintenance_alerts_enabled),
+    loadStringSetting("maintenance_owner_phone", process.env.OWNER_PHONE || MAINTENANCE_DEFAULTS.maintenance_owner_phone),
+    loadStringSetting("maintenance_owner_email", process.env.OWNER_EMAIL || MAINTENANCE_DEFAULTS.maintenance_owner_email),
+  ]);
+  if (alertsEnabled === false) {
+    return res.status(200).json({ skipped: true, reason: "missed_maintenance_alerts_enabled is false in system settings." });
+  }
 
   const sb = getSupabaseAdmin();
   if (!sb) {
@@ -333,12 +340,13 @@ export default async function handler(req, res) {
         }
 
         // Owner SMS
-        await safeSendSms(OWNER_PHONE,
+        await safeSendSms(ownerPhone,
           `🚫 ${driverName} missed their ${serviceLabel} appointment for ${vehicleName} (scheduled ${scheduledDt}). Booking: ${bookingId || "N/A"}.`
         );
 
         // Owner email
         await sendOwnerAlertEmail(
+          ownerEmail,
           `🚫 Missed Maintenance Appointment — ${vehicleName}`,
           `<p>A driver missed their scheduled maintenance appointment.</p>
 <p><strong>Vehicle:</strong> ${vehicleName}</p>

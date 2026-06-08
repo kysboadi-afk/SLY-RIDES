@@ -8,7 +8,8 @@
 // Only sends alerts when the vehicle has an ACTIVE booking (status = "active_rental").
 //
 // Flow per vehicle × service type (oil | brakes | tires):
-//   Maintenance thresholds and escalation timing are loaded from system_settings.
+//   Maintenance thresholds and escalation timing are loaded from system_settings
+//   with per-vehicle interval overrides when configured in vehicle.data.
 //   warn → Send driver SMS warning — once per booking per service type
 //   urgent → Send driver SMS urgent — once per booking per service type
 //   urgent + configured delay after no response, no service recorded → escalate:
@@ -30,7 +31,7 @@ import { laHour, isoDateInLA } from "./_time.js";
 import { getRentalState } from "./_rental-state.js";
 import { getSmsPriority } from "./_sms-priority.js";
 import { maybeSkipScheduledAutomation } from "./_runtime-environment.js";
-import { loadNumericSetting, loadStringSetting, MAINTENANCE_DEFAULTS } from "./_settings.js";
+import { loadBooleanSetting, loadNumericSetting, loadStringSetting, MAINTENANCE_DEFAULTS } from "./_settings.js";
 import {
   SMS_LOGS_NO_RETURN_DATE,
   sendDedupedSms,
@@ -54,6 +55,7 @@ import {
 
 // HIGH_DAILY_MILEAGE alert deduplication via sms_logs.
 const TEMPLATE_KEY_HIGH_MILEAGE   = "HIGH_DAILY_MILEAGE";
+const IN_CLAUSE_BATCH_SIZE = 100;
 
 function normalizePositiveNumber(value, fallback) {
   const parsed = Number(value);
@@ -65,8 +67,23 @@ function normalizePercent(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveOilIntervalMiles(vehicleData, defaultIntervalMiles) {
-  const raw = vehicleData?.maintenance_mileage_alert_miles;
+function chunkArray(values, chunkSize) {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const size = Math.max(1, Math.floor(Number(chunkSize)) || 1);
+  const chunks = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function resolveServiceIntervalMiles(vehicleData, serviceType, defaultIntervalMiles) {
+  const keyByType = {
+    oil: "maintenance_mileage_alert_miles",
+    brakes: "maintenance_brakes_interval_miles",
+    tires: "maintenance_tires_interval_miles",
+  };
+  const raw = vehicleData?.[keyByType[serviceType]];
   const parsed = Math.round(Number(raw));
   if (!Number.isFinite(parsed) || parsed <= 0) return defaultIntervalMiles;
   return parsed;
@@ -342,10 +359,12 @@ export default async function handler(req, res) {
   if (maybeSkipScheduledAutomation(req, res, { endpoint: "maintenance-alerts" })) return;
 
   const settingsEntries = await Promise.all([
+    ["maintenance_alerts_enabled", loadBooleanSetting("maintenance_alerts_enabled", MAINTENANCE_DEFAULTS.maintenance_alerts_enabled)],
     ["maintenance_alert_window_start_hour", loadNumericSetting("maintenance_alert_window_start_hour", MAINTENANCE_DEFAULTS.maintenance_alert_window_start_hour)],
     ["maintenance_alert_window_end_hour", loadNumericSetting("maintenance_alert_window_end_hour", MAINTENANCE_DEFAULTS.maintenance_alert_window_end_hour)],
     ["maintenance_hard_cooldown_minutes", loadNumericSetting("maintenance_hard_cooldown_minutes", MAINTENANCE_DEFAULTS.maintenance_hard_cooldown_minutes)],
     ["maintenance_escalation_delay_hours", loadNumericSetting("maintenance_escalation_delay_hours", MAINTENANCE_DEFAULTS.maintenance_escalation_delay_hours)],
+    ["oil_check_cooldown_hours", loadNumericSetting("oil_check_cooldown_hours", MAINTENANCE_DEFAULTS.oil_check_cooldown_hours)],
     ["maintenance_high_mileage_threshold_daily", loadNumericSetting("maintenance_high_mileage_threshold_daily", MAINTENANCE_DEFAULTS.maintenance_high_mileage_threshold_daily)],
     ["maintenance_high_mileage_max_alerts", loadNumericSetting("maintenance_high_mileage_max_alerts", MAINTENANCE_DEFAULTS.maintenance_high_mileage_max_alerts)],
     ["maintenance_high_mileage_cooldown_minutes", loadNumericSetting("maintenance_high_mileage_cooldown_minutes", MAINTENANCE_DEFAULTS.maintenance_high_mileage_cooldown_minutes)],
@@ -362,6 +381,10 @@ export default async function handler(req, res) {
     ["maintenance_tires_urgent_pct", loadNumericSetting("maintenance_tires_urgent_pct", MAINTENANCE_DEFAULTS.maintenance_tires_urgent_pct)],
   ]);
   const maintenanceSettings = Object.fromEntries(settingsEntries);
+  const maintenanceAlertsEnabled = maintenanceSettings.maintenance_alerts_enabled !== false;
+  if (!maintenanceAlertsEnabled) {
+    return res.status(200).json({ skipped: true, reason: "maintenance_alerts_enabled is false in system settings." });
+  }
   const services = buildServices(maintenanceSettings);
   const windowStartHour = Math.max(0, Math.floor(normalizePositiveNumber(
     maintenanceSettings.maintenance_alert_window_start_hour,
@@ -391,6 +414,10 @@ export default async function handler(req, res) {
     maintenanceSettings.maintenance_high_mileage_cooldown_minutes,
     MAINTENANCE_DEFAULTS.maintenance_high_mileage_cooldown_minutes
   )) * 60 * 1000;
+  const crossCronOilCheckCooldownMs = Math.round(normalizePositiveNumber(
+    maintenanceSettings.oil_check_cooldown_hours,
+    MAINTENANCE_DEFAULTS.oil_check_cooldown_hours
+  ) * 3_600_000);
   const ownerPhone = maintenanceSettings.maintenance_owner_phone || "";
   const ownerEmail = maintenanceSettings.maintenance_owner_email || "";
 
@@ -448,25 +475,29 @@ export default async function handler(req, res) {
     const activeBookingByVehicle = {};
     let usedSupabase = false;
     try {
-      const { data: activeRows, error: activeErr } = await sb
-        .from("bookings")
-        .select("id, booking_ref, payment_intent_id, vehicle_id, return_date, return_time, oil_check_required, oil_status, oil_check_last_request, customers ( name, phone )")
-        .in("status", ["active", "active_rental"])
-        .in("vehicle_id", trackedIds);
-      if (activeErr) {
-        // Schema errors (e.g. missing column — Postgres code 42703) must not
-        // crash the endpoint.  Log the error and proceed with an empty booking
-        // map so downstream vehicle processing is safely skipped.
-        if (activeErr.code === "42703") {
-          console.error("maintenance-alerts: bookings schema error — missing column. Proceeding with empty active bookings. Run migration 0098 to add the missing columns.", activeErr.message);
-        } else {
+      const activeRows = [];
+      for (const trackedIdBatch of chunkArray(trackedIds, IN_CLAUSE_BATCH_SIZE)) {
+        const { data: batchRows, error: activeErr } = await sb
+          .from("bookings")
+          .select("id, booking_ref, payment_intent_id, vehicle_id, return_date, return_time, oil_check_required, oil_status, oil_check_last_request, customers ( name, phone )")
+          .in("status", ["active", "active_rental"])
+          .in("vehicle_id", trackedIdBatch);
+        if (activeErr) {
+          // Schema errors (e.g. missing column — Postgres code 42703) must not
+          // crash the endpoint.  Log the error and proceed with an empty booking
+          // map so downstream vehicle processing is safely skipped.
+          if (activeErr.code === "42703") {
+            console.error("maintenance-alerts: bookings schema error — missing column. Proceeding with empty active bookings. Run migration 0098 to add the missing columns.", activeErr.message);
+            continue;
+          }
           throw activeErr; // other query errors → propagate, do NOT fallback
         }
-      } else {
-        // Only mark Supabase as used when the query actually succeeded.
         usedSupabase = true;
+        if (Array.isArray(batchRows) && batchRows.length > 0) {
+          activeRows.push(...batchRows);
+        }
       }
-      for (const r of (activeRows || [])) {
+      for (const r of activeRows) {
         activeBookingByVehicle[r.vehicle_id] = {
           bookingId:           resolveBookingIdentity(r),
           bookingRef:          normalizeBookingIdentity(r.booking_ref),
@@ -565,7 +596,7 @@ export default async function handler(req, res) {
       //   wait to avoid back-to-back messages from different automation systems.
       if (
         booking.oilCheckLastRequest &&
-        Date.now() - new Date(booking.oilCheckLastRequest).getTime() < 86_400_000
+        Date.now() - new Date(booking.oilCheckLastRequest).getTime() < crossCronOilCheckCooldownMs
       ) {
         console.log(`maintenance-alerts: SKIP vehicle ${vid} booking ${booking.bookingId || vid}: oil-check-cron cooldown active (last=${booking.oilCheckLastRequest})`);
         continue;
@@ -578,8 +609,6 @@ export default async function handler(req, res) {
         continue;
       }
       const phone     = booking.phone;
-      const oilIntervalMiles = resolveOilIntervalMiles(row.data, maintenanceSettings.maintenance_oil_interval_miles);
-
       // ── Compute time-proximity context ────────────────────────────────────
       const { end_datetime: returnDt, minutesToReturn: rawMinutesToReturn } =
         await getRentalState(sb, bookingId);
@@ -624,7 +653,7 @@ export default async function handler(req, res) {
       }
 
       for (const svc of services) {
-        const serviceInterval = svc.type === "oil" ? oilIntervalMiles : svc.interval;
+        const serviceInterval = resolveServiceIntervalMiles(row.data, svc.type, svc.interval);
         // Resolve last-service mileage for this specific service type
         const lastMi  = row[svc.col] != null
           ? Number(row[svc.col])

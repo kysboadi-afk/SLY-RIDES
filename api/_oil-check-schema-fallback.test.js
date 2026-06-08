@@ -176,6 +176,7 @@ const settingsState = { milesInterval: 500, daysSinceCheck: Number.MAX_SAFE_INTE
 
 mock.module("./_settings.js", {
   namedExports: {
+    loadBooleanSetting: async (_key, defaultVal = true) => defaultVal,
     loadNumericSetting: async (key, defaultVal) => {
       if (key === "oil_check_miles_interval") return settingsState.milesInterval;
       if (key === "oil_check_days_since_check") return settingsState.daysSinceCheck;
