@@ -8,7 +8,8 @@
 // Only sends alerts when the vehicle has an ACTIVE booking (status = "active_rental").
 //
 // Flow per vehicle × service type (oil | brakes | tires):
-//   Maintenance thresholds and escalation timing are loaded from system_settings.
+//   Maintenance thresholds and escalation timing are loaded from system_settings
+//   with per-vehicle interval overrides when configured in vehicle.data.
 //   warn → Send driver SMS warning — once per booking per service type
 //   urgent → Send driver SMS urgent — once per booking per service type
 //   urgent + configured delay after no response, no service recorded → escalate:
@@ -65,8 +66,13 @@ function normalizePercent(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveOilIntervalMiles(vehicleData, defaultIntervalMiles) {
-  const raw = vehicleData?.maintenance_mileage_alert_miles;
+function resolveServiceIntervalMiles(vehicleData, serviceType, defaultIntervalMiles) {
+  const keyByType = {
+    oil: "maintenance_mileage_alert_miles",
+    brakes: "maintenance_brakes_interval_miles",
+    tires: "maintenance_tires_interval_miles",
+  };
+  const raw = vehicleData?.[keyByType[serviceType]];
   const parsed = Math.round(Number(raw));
   if (!Number.isFinite(parsed) || parsed <= 0) return defaultIntervalMiles;
   return parsed;
@@ -578,8 +584,6 @@ export default async function handler(req, res) {
         continue;
       }
       const phone     = booking.phone;
-      const oilIntervalMiles = resolveOilIntervalMiles(row.data, maintenanceSettings.maintenance_oil_interval_miles);
-
       // ── Compute time-proximity context ────────────────────────────────────
       const { end_datetime: returnDt, minutesToReturn: rawMinutesToReturn } =
         await getRentalState(sb, bookingId);
@@ -624,7 +628,7 @@ export default async function handler(req, res) {
       }
 
       for (const svc of services) {
-        const serviceInterval = svc.type === "oil" ? oilIntervalMiles : svc.interval;
+        const serviceInterval = resolveServiceIntervalMiles(row.data, svc.type, svc.interval);
         // Resolve last-service mileage for this specific service type
         const lastMi  = row[svc.col] != null
           ? Number(row[svc.col])
