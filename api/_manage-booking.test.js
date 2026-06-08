@@ -741,6 +741,111 @@ test("create_balance_payment_intent resolves booking by payment_intent_id token 
   assert.equal(stripeCreateCalls[0].metadata.original_booking_id, "bk-fallback-001");
 });
 
+test("create_balance_payment_intent resolves booking by legacy id token fallback", async () => {
+  process.env.STRIPE_SECRET_KEY = "sk_test_manage_booking";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_manage_booking";
+  verifyManageTokenValue = "59244aabc317d072";
+
+  const bookingRow = {
+    id: "59244aabc317d072",
+    booking_ref: "bk-fallback-legacy-id",
+    vehicle_id: "camry",
+    category: "car",
+    status: "reserved",
+    total_price: 400,
+    deposit_paid: 100,
+    remaining_balance: 300,
+    customer_name: "Legacy Id Renter",
+    customer_email: "legacy-id@example.com",
+    customer_phone: "+13105550005",
+    pickup_date: "2026-08-01",
+    return_date: "2026-08-05",
+  };
+
+  supabaseClient = {
+    from(table) {
+      assert.equal(table, "bookings");
+      const ctx = {};
+      return {
+        select() { return this; },
+        eq(column, value) {
+          ctx.column = column;
+          ctx.value = value;
+          return this;
+        },
+        async maybeSingle() {
+          if (ctx.column === "booking_ref" && ctx.value === "59244aabc317d072") {
+            return makeQueryResult(null);
+          }
+          if (ctx.column === "id" && ctx.value === "59244aabc317d072") {
+            return makeQueryResult(bookingRow);
+          }
+          return makeQueryResult(null);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({ action: "create_balance_payment_intent", token: "valid-token" }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.paymentAmount, 300);
+  assert.equal(stripeCreateCalls.length, 1);
+  assert.equal(stripeCreateCalls[0].metadata.booking_id, "bk-fallback-legacy-id");
+});
+
+test("verify accepts pending_checkout reservations", async () => {
+  let statusFilter = [];
+  supabaseClient = {
+    from(table) {
+      assert.equal(table, "bookings");
+      const ctx = { isUpdate: false };
+      const rows = [{
+        id: "59244aabc317d072",
+        booking_ref: "bk-pending-001",
+        vehicle_id: "camry",
+        customer_email: "pending@example.com",
+        customer_phone: "+13105550006",
+        created_at: "2026-06-01T00:00:00.000Z",
+        metadata: {},
+      }];
+      return {
+        select() { return this; },
+        in(column, values) {
+          if (column === "status") statusFilter = values;
+          return this;
+        },
+        order() { return this; },
+        ilike() { return this; },
+        limit() { return this; },
+        then(resolve) {
+          if (ctx.isUpdate) {
+            resolve(makeQueryResult(null));
+            return;
+          }
+          resolve(makeQueryResult(rows));
+        },
+        update() {
+          ctx.isUpdate = true;
+          return this;
+        },
+        eq() {
+          if (ctx.isUpdate) return Promise.resolve(makeQueryResult(null));
+          return this;
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({ action: "verify", identifier: "pending@example.com" }), res);
+
+  assert.equal(res._status, 200);
+  assert.ok(statusFilter.includes("pending_checkout"));
+  assert.equal(res._body.bookingId, "bk-pending-001");
+});
+
 test("apply_change omits protection-plan columns when booking read used legacy select fallback", async () => {
   const bookingRow = {
     id: 9,
