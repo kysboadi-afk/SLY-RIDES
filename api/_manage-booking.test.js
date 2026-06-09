@@ -307,6 +307,95 @@ test("manage-booking get suppresses dismissed late fee amount from renter payloa
   assert.equal(res._body.lateFeeAmount, null);
 });
 
+test("manage-booking get reprices deposit-paid bookings when stale totals hide a real balance", async () => {
+  const bookingRow = {
+    id: 4,
+    booking_ref: "bk-fallback-001",
+    vehicle_id: "camry",
+    pickup_date: "2026-08-01",
+    return_date: "2026-08-05",
+    pickup_time: "10:00 AM",
+    return_time: "10:00 AM",
+    status: "reserved",
+    payment_status: "deposit_paid",
+    total_price: 50,
+    deposit_paid: 50,
+    remaining_balance: 0,
+    change_count: 0,
+    customer_name: "Deposit Only",
+    customer_email: "deposit@example.com",
+    customer_phone: "3105550101",
+    created_at: "2026-07-15T00:00:00.000Z",
+  };
+
+  supabaseClient = {
+    from(table) {
+      if (table === "payment_plans") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          in() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "system_settings") {
+        return {
+          select() { return this; },
+          in() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "vehicle_pricing") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "vehicles") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          async maybeSingle() { return makeQueryResult(null); },
+        };
+      }
+      assert.equal(table, "bookings");
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async maybeSingle() {
+          return makeQueryResult(bookingRow);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({ action: "get", token: "valid-token" }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.totalPrice, 242.55);
+  assert.equal(res._body.depositPaid, 50);
+  assert.equal(res._body.balanceDue, 192.55);
+  assert.equal(res._body.canPayRemainingOnline, true);
+  assert.deepEqual(res._body.contractTransitionObservability.fallbackPaths, [
+    {
+      path: "pricing_recompute_for_stale_partial_balance",
+      source: "recomputePricing",
+    },
+  ]);
+});
+
 test("manage-booking get_agreement_url returns a signed URL when agreement PDF exists", async () => {
   supabaseClient = {
     from(table) {
@@ -793,6 +882,81 @@ test("create_balance_payment_intent resolves booking by legacy id token fallback
   assert.equal(res._body.paymentAmount, 300);
   assert.equal(stripeCreateCalls.length, 1);
   assert.equal(stripeCreateCalls[0].metadata.booking_id, "bk-fallback-legacy-id");
+});
+
+test("create_balance_payment_intent reprices deposit-paid bookings so remaining balance can still be collected", async () => {
+  process.env.STRIPE_SECRET_KEY = "sk_test_manage_booking";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_manage_booking";
+
+  const bookingRow = {
+    booking_ref: "bk-fallback-001",
+    vehicle_id: "camry",
+    category: "car",
+    status: "reserved",
+    payment_status: "deposit_paid",
+    total_price: 50,
+    deposit_paid: 50,
+    remaining_balance: 0,
+    customer_name: "Deposit Paid Renter",
+    customer_email: "deposit-paid@example.com",
+    customer_phone: "+13105550007",
+    pickup_date: "2026-08-01",
+    return_date: "2026-08-05",
+  };
+
+  supabaseClient = {
+    from(table) {
+      if (table === "system_settings") {
+        return {
+          select() { return this; },
+          in() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "vehicle_pricing") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      if (table === "vehicles") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          async maybeSingle() { return makeQueryResult(null); },
+        };
+      }
+      if (table === "customers") {
+        return {
+          select() { return this; },
+          ilike() { return this; },
+          eq() { return this; },
+          order() { return this; },
+          limit() { return Promise.resolve(makeQueryResult([])); },
+        };
+      }
+      assert.equal(table, "bookings");
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async maybeSingle() {
+          return makeQueryResult(bookingRow);
+        },
+      };
+    },
+  };
+
+  const res = makeRes();
+  await handler(makeReq({ action: "create_balance_payment_intent", token: "valid-token" }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.balanceAmount, 192.55);
+  assert.equal(res._body.paymentAmount, 192.55);
+  assert.equal(stripeCreateCalls.length, 1);
+  assert.equal(stripeCreateCalls[0].amount, 19255);
+  assert.equal(stripeCreateCalls[0].metadata.payment_type, "rental_balance");
+  assert.equal(stripeCreateCalls[0].metadata.remaining_balance, "192.55");
 });
 
 test("verify accepts pending_checkout reservations", async () => {
