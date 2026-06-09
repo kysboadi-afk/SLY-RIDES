@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
-const SOURCE_PROJECT_REF = "xuqqjdifuyzqopypyov";
+const SOURCE_PROJECT_REF = "xuqqjdiifuyzqopypyov";
 const TARGET_PROJECT_REF = "kdobrxffhtsigyiwnahs";
 const PAGE_SIZE = 1000;
 const INSERT_BATCH_SIZE = 200;
