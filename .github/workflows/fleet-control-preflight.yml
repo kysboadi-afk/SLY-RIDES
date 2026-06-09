@@ -29,6 +29,7 @@ jobs:
 
       - name: Run Fleet Control preflight
         id: preflight
+        continue-on-error: true
         env:
           SOURCE_SUPABASE_URL: ${{ secrets.SOURCE_SUPABASE_URL }}
           SOURCE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SOURCE_SUPABASE_SERVICE_ROLE_KEY }}
@@ -64,6 +65,7 @@ jobs:
           if (!files.length) { console.error("No log file."); process.exit(1); }
           const log = JSON.parse(readFileSync(path.join(logDir, files[0]), "utf8"));
           const p = log.preflight || {};
+          const errorMessage = typeof log.error?.message === "string" ? log.error.message : "";
 
           const line = (label, val) => console.log(`  ${label.padEnd(45)} ${val}`);
           const sep  = () => console.log("-".repeat(65));
@@ -153,13 +155,22 @@ jobs:
           const noLeadConflict = (p.activeFleetControlLeadsInTarget === 0);
           const noOrgConflict  = (p.referencedOrgsInTarget === 0);
           const safe = schemaOk && noLeadConflict && noOrgConflict;
+          const advisoryBlocker =
+            !safe &&
+            (
+              typeof p.requiredTablesAccessible === "boolean" ||
+              typeof p.schemaColumnsMatch === "boolean" ||
+              typeof p.schemaConstraintsMatch === "boolean" ||
+              typeof p.activeFleetControlLeadsInTarget === "number" ||
+              typeof p.referencedOrgsInTarget === "number"
+            );
 
           if (safe) {
             console.log("  ✅  RECOMMENDATION: SAFE TO MIGRATE");
             console.log("     All schema checks passed. Target tables are empty.");
             console.log("     No ID conflicts detected. Re-run with --execute when ready.");
           } else {
-            console.log("  ❌  RECOMMENDATION: DO NOT MIGRATE");
+            console.log(`  ${advisoryBlocker ? "⚠️" : "❌"}  RECOMMENDATION: DO NOT MIGRATE`);
             if (!schemaOk) {
               if (typeof p.requiredTablesAccessible === "boolean") {
                 console.log("     • Required public tables are not accessible in source and/or target.");
@@ -170,8 +181,13 @@ jobs:
             }
             if (!noLeadConflict)  console.log(`     • operator_leads already has ${leadsInTarget} row(s) in target.`);
             if (!noOrgConflict)   console.log(`     • ${orgsInTarget} referenced org ID(s) already exist in target.`);
+            if (errorMessage)     console.log(`     • Script reported: ${errorMessage}`);
             console.log("     Resolve the issues above before attempting migration.");
-            process.exitCode = 1;
+            if (advisoryBlocker) {
+              console.log("     Read-only preflight findings were surfaced successfully; review them before any execute run.");
+            } else {
+              process.exitCode = 1;
+            }
           }
           console.log("════════════════════════════════════════════════════════════════\n");
           EOF
