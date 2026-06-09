@@ -59,6 +59,7 @@ const POSTGREST_EMBEDDED_SCHEMA_ERROR = "PGRST200";
 const VERIFY_WINDOW_MS = 15 * 60 * 1000;
 const VERIFY_LOCK_MS = 15 * 60 * 1000;
 const VERIFY_MAX_ATTEMPTS = 8;
+const PARTIAL_BALANCE_PAYMENT_STATUSES = new Set(["partial", "deposit", "deposit_paid", "partially_paid"]);
 const BOOKING_SELECT_COLS =
   "id, booking_ref, vehicle_id, pickup_date, return_date, pickup_time, return_time, " +
   "status, payment_status, total_price, deposit_paid, remaining_balance, " +
@@ -398,6 +399,12 @@ function effectiveBalanceDue(row) {
     balance = Math.round((totalPrice - depositPaid) * 100) / 100;
   }
   return balance;
+}
+
+function hasPartialBalancePaymentStatus(value) {
+  return PARTIAL_BALANCE_PAYMENT_STATUSES.has(
+    String(value || "").trim().toLowerCase().replace(/\s+/g, "_")
+  );
 }
 
 function toObservabilityMoney(value) {
@@ -774,7 +781,7 @@ export default async function handler(req, res) {
     // pricing so the manage-booking dashboard shows the correct outstanding balance
     // and the customer can pay online.  This mirrors the identical fallback already
     // present in the create_balance_payment_intent action below.
-    if (balanceDue <= 0 && row.payment_status === "partial" && vehicleData && row.pickup_date && row.return_date) {
+    if (balanceDue <= 0 && hasPartialBalancePaymentStatus(row.payment_status) && vehicleData && row.pickup_date && row.return_date) {
       try {
         const repriced = await recomputePricing(
           vehicleData,
@@ -971,7 +978,7 @@ export default async function handler(req, res) {
     // total_price = deposit_paid (because full_rental_amount was absent from the
     // PI metadata) and no ledger entry was written, recompute from live pricing
     // so the customer can still pay the outstanding balance online.
-    if ((!Number.isFinite(resolvedBalance) || resolvedBalance <= 0) && row.payment_status === "partial" && vehicleData && row.pickup_date && row.return_date) {
+    if ((!Number.isFinite(resolvedBalance) || resolvedBalance <= 0) && hasPartialBalancePaymentStatus(row.payment_status) && vehicleData && row.pickup_date && row.return_date) {
       try {
         const repriced = await recomputePricing(
           vehicleData,
