@@ -46,11 +46,88 @@ function getProjectRef(url) {
   }
 }
 
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== "string") return null;
+  const [, payload] = token.split(".");
+  if (!payload) return null;
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function getProjectRefFromServiceRoleKey(key) {
+  const payload = decodeJwtPayload(key);
+  if (!payload || typeof payload !== "object") return null;
+  if (typeof payload.ref === "string" && payload.ref) return payload.ref;
+  if (typeof payload.iss === "string" && payload.iss) return getProjectRef(payload.iss);
+  return null;
+}
+
+function normalizeSupabaseError(error) {
+  if (!error) return null;
+  const raw =
+    typeof error === "string"
+      ? error
+      : JSON.stringify(error, Object.getOwnPropertyNames(error)).slice(0, 1000);
+  return {
+    message: typeof error?.message === "string" && error.message ? error.message : null,
+    code: typeof error?.code === "string" && error.code ? error.code : null,
+    details: typeof error?.details === "string" && error.details ? error.details : null,
+    hint: typeof error?.hint === "string" && error.hint ? error.hint : null,
+    name: typeof error?.name === "string" && error.name ? error.name : null,
+    status: typeof error?.status === "number" ? error.status : null,
+    raw: raw || null,
+  };
+}
+
 function createAdminClient(url, key, label) {
   if (!url || !key) {
     throw new Error(`Missing ${label} Supabase credentials.`);
   }
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function probeProjectConnectivity(url, key, label) {
+  const endpoint = `${String(url || "").replace(/\/+$/, "")}/rest/v1/`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: key,
+        Authorization: "Bearer " + key,
+        Accept: "application/openapi+json",
+      },
+    });
+    const body = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText || null,
+      endpoint,
+      projectRefHeader: response.headers.get("x-supabase-project-ref") || null,
+      bodyPreview: body.slice(0, 300) || null,
+      error: response.ok
+        ? null
+        : {
+            message: `Connectivity probe failed for ${label} (${response.status} ${response.statusText})`,
+            code: `http_${response.status}`,
+            details: body.slice(0, 300) || null,
+            hint: null,
+          },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      statusText: null,
+      endpoint,
+      projectRefHeader: null,
+      bodyPreview: null,
+      error: normalizeSupabaseError(error),
+    };
+  }
 }
 
 async function fetchPaged(buildQuery) {
@@ -117,14 +194,7 @@ async function validateRequiredTables(client) {
       return {
         table,
         ok: !error,
-        error: error
-          ? {
-              message: error.message || null,
-              code: error.code || null,
-              details: error.details || null,
-              hint: error.hint || null,
-            }
-          : null,
+        error: normalizeSupabaseError(error),
       };
     })
   );
@@ -160,8 +230,15 @@ async function main() {
 
   const sourceRef = getProjectRef(sourceUrl || "");
   const targetRef = getProjectRef(targetUrl || "");
+  const targetKeyRef = getProjectRefFromServiceRoleKey(targetKey || "");
   if (sourceRef !== SOURCE_PROJECT_REF) throw new Error(`Expected source project ${SOURCE_PROJECT_REF}; got ${sourceRef || "unknown"}.`);
   if (targetRef !== TARGET_PROJECT_REF) throw new Error(`Expected target project ${TARGET_PROJECT_REF}; got ${targetRef || "unknown"}.`);
+  if (!targetKeyRef) {
+    throw new Error("Could not determine target service role key project ref from TARGET_SUPABASE_SERVICE_ROLE_KEY.");
+  }
+  if (targetKeyRef !== TARGET_PROJECT_REF) {
+    throw new Error(`Expected target service role key for project ${TARGET_PROJECT_REF}; got ${targetKeyRef}.`);
+  }
 
   const source = createAdminClient(sourceUrl, sourceKey, "source");
   const target = createAdminClient(targetUrl, targetKey, "target");
@@ -170,6 +247,7 @@ async function main() {
     mode: execute ? "execute" : "preflight",
     sourceProjectRef: sourceRef,
     targetProjectRef: targetRef,
+    targetServiceRoleKeyProjectRef: targetKeyRef,
     maintenanceConfirmed: confirmedFreeze,
     schemaValidationMode: "public_table_access",
     preflight: {},
@@ -179,6 +257,24 @@ async function main() {
 
   if (!confirmedFreeze) {
     throw new Error("Maintenance freeze not confirmed. Re-run with --maintenance-confirmed or FLEET_CONTROL_MAINTENANCE_CONFIRMED=true.");
+  }
+
+  console.log(`[fleet-control-migration] target project ref (url): ${targetRef}`);
+  console.log(`[fleet-control-migration] target project ref (service role key): ${targetKeyRef}`);
+
+  const targetConnectivity = await probeProjectConnectivity(targetUrl, targetKey, "target");
+  log.preflight.targetConnectivity = targetConnectivity;
+  console.log(
+    `[fleet-control-migration] target connectivity probe: ${targetConnectivity.ok ? "ok" : "failed"}`
+      + ` (${targetConnectivity.status ?? "no-status"}${targetConnectivity.statusText ? ` ${targetConnectivity.statusText}` : ""})`
+      + `${targetConnectivity.projectRefHeader ? ` ref=${targetConnectivity.projectRefHeader}` : ""}`
+  );
+  if (!targetConnectivity.ok) {
+    const targetConnectivityError = new Error("Target project connectivity probe failed before table validation.");
+    targetConnectivityError.preflight = {
+      targetConnectivity,
+    };
+    throw targetConnectivityError;
   }
 
   const [sourceTableValidation, targetTableValidation] = await Promise.all([
@@ -192,6 +288,7 @@ async function main() {
   if (!log.preflight.requiredTablesAccessible) {
     const requiredTablesError = new Error("Required public tables are not accessible in source/target. Stop before migration.");
     requiredTablesError.preflight = {
+      targetConnectivity,
       sourceRequiredTables: sourceTableValidation.checks,
       targetRequiredTables: targetTableValidation.checks,
       requiredTablesAccessible: false,
@@ -319,6 +416,9 @@ main().catch((error) => {
     mode: execute ? "execute" : "preflight",
     sourceProjectRef: getProjectRef(process.env.SOURCE_SUPABASE_URL || ""),
     targetProjectRef: getProjectRef(process.env.TARGET_SUPABASE_URL || process.env.SUPABASE_URL || ""),
+    targetServiceRoleKeyProjectRef: getProjectRefFromServiceRoleKey(
+      process.env.TARGET_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+    ),
     maintenanceConfirmed: confirmedFreeze,
     schemaValidationMode: "public_table_access",
     preflight: error?.preflight && typeof error.preflight === "object" ? error.preflight : {},
