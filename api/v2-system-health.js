@@ -2079,10 +2079,24 @@ export default async function handler(req, res) {
       stripePaymentNoBooking: fixStripePaymentNoBooking,
       availabilitySyncHealth: runAvailabilitySyncFix,
     };
+
+    // Map each repairable key back to its check function so we can re-run only
+    // the affected checks after repairs — this ensures the alert decision is
+    // based on post-repair state, not the stale pre-repair snapshot.
+    const recheckMap = {
+      paymentBookingRevenue:  () => checkPaymentBookingRevenue(sb),
+      orphanRevenue:          () => checkOrphanRevenue(sb),
+      staleReservations:      () => checkStaleReservations(sb),
+      stripePaymentNoBooking: () => checkStripePaymentNoBooking(sb),
+      availabilitySyncHealth: () => checkAvailabilitySync(sb),
+    };
+
+    const repairedKeys = [];
     for (const [key, fixFn] of Object.entries(autoRepairMap)) {
       if (checks[key]?.status === "error" && checks[key]?.fixable) {
         try {
           autoRepairResults[key] = await fixFn(sb);
+          repairedKeys.push(key);
         } catch (err) {
           autoRepairResults[key] = { error: err.message };
           console.error(`[v2-system-health] cron auto-repair ${key} failed:`, err.message);
@@ -2090,15 +2104,38 @@ export default async function handler(req, res) {
       }
     }
 
-    if (overallStatus === "error") {
+    // Re-run the checks that had a repair attempt so the alert reflects whether
+    // the issue was actually resolved.  Alerts that auto-repair fixed won't fire;
+    // only genuinely persistent errors will trigger an owner notification.
+    if (repairedKeys.length > 0) {
+      await Promise.all(
+        repairedKeys.map(async (key) => {
+          try {
+            checks[key] = await recheckMap[key]();
+          } catch (err) {
+            console.error(`[v2-system-health] post-repair recheck ${key} failed:`, err.message);
+          }
+        }),
+      );
+    }
+
+    // Recompute overallStatus from the (possibly updated) check results.
+    const updatedStatuses = Object.values(checks).map((c) => c.status);
+    const alertStatus = updatedStatuses.includes("error")
+      ? "error"
+      : updatedStatuses.includes("warning")
+      ? "warning"
+      : "ok";
+
+    if (alertStatus === "error") {
       const canAlert = await shouldSendAlert(sb);
       if (canAlert) {
-        await sendOwnerAlerts(checks, overallStatus, checkedAt);
+        await sendOwnerAlerts(checks, alertStatus, checkedAt);
         await recordAlertSent(sb);
       }
     }
 
-    return res.status(200).json({ checks, overallStatus, checkedAt, autoRepair: autoRepairResults });
+    return res.status(200).json({ checks, overallStatus: alertStatus, checkedAt, autoRepair: autoRepairResults });
   }
 
   return res.status(200).json({ checks, overallStatus, checkedAt });
