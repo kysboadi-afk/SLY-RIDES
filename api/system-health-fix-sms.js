@@ -69,6 +69,15 @@ export default async function handler(req, res) {
   }
   console.log("[system-health-fix-sms] Supabase connection OK");
 
+  // All system-health notifications are disabled.
+  return res.status(200).json({
+    ok:        true,
+    skipped:   true,
+    processed: 0,
+    sent:      0,
+    message:   "System health notifications are disabled — no SMS sent.",
+  });
+
   if (!process.env.TEXTMAGIC_USERNAME || !process.env.TEXTMAGIC_API_KEY) {
     return res.status(200).json({
       ok:        true,
