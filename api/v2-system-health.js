@@ -1902,6 +1902,8 @@ async function recordAlertSent(sb) {
 }
 
 async function sendOwnerAlerts(checks, overallStatus, checkedAt) {
+  // Owner SMS and email notifications for system health are disabled.
+  return;
   const issueChecks = Object.values(checks).filter((c) => c.status !== "ok");
   if (issueChecks.length === 0) return;
 
