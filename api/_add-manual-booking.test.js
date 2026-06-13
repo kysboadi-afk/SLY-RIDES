@@ -185,6 +185,20 @@ test("add-manual-booking: 400 for missing returnTime", async () => {
   assert.equal(res._status, 400);
 });
 
+test("add-manual-booking: succeeds even when GITHUB_TOKEN is unset", async () => {
+  resetStore(); resetCalls();
+  const prevToken = process.env.GITHUB_TOKEN;
+  delete process.env.GITHUB_TOKEN;
+  try {
+    const res = makeRes();
+    await handler(makeReq(basePayload()), res);
+    assert.equal(res._status, 200);
+    assert.ok(res._body?.booking, "manual booking should still be created without GITHUB_TOKEN");
+  } finally {
+    process.env.GITHUB_TOKEN = prevToken;
+  }
+});
+
 // ─── Supabase sync preflight validations ─────────────────────────────────────
 
 test("add-manual-booking: successful booking returns 200 with booking record", async () => {

@@ -896,6 +896,14 @@ async function toolSendSms({ phone, message }) {
   return { sent: !!result.sent, to: phone, id: result?.providerId || null };
 }
 
+async function resolveQueryOrEmpty(query) {
+  try {
+    return await query;
+  } catch {
+    return { data: [] };
+  }
+}
+
 async function toolGetInsights({ scope } = {}) {
   console.time("toolGetInsights execution");
   try {
@@ -907,17 +915,17 @@ async function toolGetInsights({ scope } = {}) {
   // Previously: batch-1 (bookings + vehicles) then batch-2 (mileage + trips).
   // Now: all 4 fire simultaneously, cutting total query time roughly in half.
   const mileageQuery = sb
-    ? sb.from("vehicles")
+    ? resolveQueryOrEmpty(sb.from("vehicles")
         .select("vehicle_id, mileage, last_synced_at, last_oil_change_mileage, last_brake_check_mileage, last_tire_change_mileage, data")
         .not("bouncie_device_id", "is", null)
-        .catch(() => ({ data: [] }))
+      )
     : Promise.resolve({ data: [] });
 
   const tripQuery = sb
-    ? sb.from("trip_log")
+    ? resolveQueryOrEmpty(sb.from("trip_log")
         .select("vehicle_id, trip_distance, trip_at")
         .gte("trip_at", new Date(Date.now() - 30 * 86400000).toISOString())
-        .catch(() => ({ data: [] }))
+      )
     : Promise.resolve({ data: [] });
 
   const [allBookings, mileageResult, tripResult] = await Promise.all([
@@ -999,10 +1007,9 @@ async function toolGetMileage({ scope } = {}) {
       sb.from("vehicles")
         .select("vehicle_id, mileage, last_synced_at, bouncie_device_id, last_oil_change_mileage, last_brake_check_mileage, last_tire_change_mileage, data")
         .not("bouncie_device_id", "is", null),
-      sb.from("trip_log")
+      resolveQueryOrEmpty(sb.from("trip_log")
         .select("vehicle_id, trip_distance, trip_at")
-        .gte("trip_at", new Date(Date.now() - 30 * 86400000).toISOString())
-        .catch(() => ({ data: [] })),
+        .gte("trip_at", new Date(Date.now() - 30 * 86400000).toISOString())),
     ]);
 
     // Surface DB errors rather than silently returning empty results.

@@ -2222,10 +2222,6 @@ export default withAdminAuth(async function handler(req, res) {
 
     // ── CREATE (manual booking) ─────────────────────────────────────────────
     if (action === "create") {
-      if (!process.env.GITHUB_TOKEN) {
-        return res.status(500).json({ error: "GITHUB_TOKEN not configured" });
-      }
-
       const {
         vehicleId, name, phone, email,
         pickupDate, pickupTime, returnDate, returnTime,
