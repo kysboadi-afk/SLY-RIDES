@@ -74,10 +74,6 @@ export default async function handler(req, res) {
   if (!process.env.ADMIN_SECRET) {
     return res.status(500).json({ error: "Server configuration error: ADMIN_SECRET is not set." });
   }
-  if (!process.env.GITHUB_TOKEN) {
-    return res.status(500).json({ error: "Server configuration error: GITHUB_TOKEN is not set." });
-  }
-
   const {
     secret, vehicleId, name, phone, email,
     pickupDate, pickupTime, returnDate, returnTime,

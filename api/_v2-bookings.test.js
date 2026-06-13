@@ -780,6 +780,20 @@ test("create: totalPrice defaults to amountPaid when not provided", async () => 
   assert.equal(res._body.booking.totalPrice, 75);
 });
 
+test("create: succeeds without GITHUB_TOKEN configured", async () => {
+  resetStore(); resetCalls();
+  const prevToken = process.env.GITHUB_TOKEN;
+  delete process.env.GITHUB_TOKEN;
+  try {
+    const res = makeRes();
+    await handler(makeReq(createPayload({ amountPaid: 150 })), res);
+    assert.equal(res._status, 200);
+    assert.equal(res._body.booking.status, "booked_paid");
+  } finally {
+    process.env.GITHUB_TOKEN = prevToken;
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 4. CREATE — automation side effects
 // ═══════════════════════════════════════════════════════════════════════════════
