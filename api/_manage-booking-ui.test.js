@@ -27,7 +27,9 @@ async function bootDashboard({ bookingPayload, ledgerPayload, agreementPayload, 
     <div id="error-msg"></div>
     <div id="main-content"></div>
     <div id="hero-payment-chip"></div>
+    <div id="s-total"></div>
     <div id="s-balance"></div>
+    <div id="stat-total"></div>
     <div id="progress-paid-label"></div>
     <div id="progress-pct-label"></div>
     <div id="payment-progress-fill"></div>
@@ -215,6 +217,32 @@ test("partial-balance ledger summary updates remaining amount and payment progre
   assert.equal(document.getElementById("progress-pct-label").textContent, "$185.88 remaining");
   assert.match(document.getElementById("hero-payment-chip").textContent, /\$185\.88.*remaining/);
   assert.equal(document.getElementById("pay-balance-section").style.display, "block");
+});
+
+test("ledger total charges are reflected in rental total display for manual add-on balances", async () => {
+  const document = await bootDashboard({
+    bookingPayload: baseBooking({
+      totalPrice: 47.41,
+      depositPaid: 0,
+      balanceDue: 47.41,
+      paymentStatus: "pending",
+    }),
+    ledgerPayload: {
+      summary: {
+        total_paid: 0,
+        total_charges: 106.64,
+        remaining_balance: 106.64,
+        transaction_count: 2,
+      },
+      transactions: [],
+    },
+    agreementPayload: {},
+  });
+
+  assert.equal(document.getElementById("s-total").textContent, "$106.64");
+  assert.equal(document.getElementById("stat-total").textContent, "$106.64");
+  assert.equal(document.getElementById("s-balance").textContent, "$106.64");
+  assert.equal(document.getElementById("btn-init-balance").textContent, "Pay Remaining Balance ($106.64)");
 });
 
 test("reserved_unpaid deposit booking keeps remaining balance online-payable", async () => {

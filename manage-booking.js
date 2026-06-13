@@ -575,13 +575,17 @@
   }
 
   function deriveDisplayedFinancials(b, summary, statusKey) {
-    const total = Number(b.totalPrice || 0) || (Number(b.depositPaid || 0) + Number(b.balanceDue || 0)) || 0;
+    const baseTotal = Number(b.totalPrice || 0) || (Number(b.depositPaid || 0) + Number(b.balanceDue || 0)) || 0;
     const dbPaid = Math.max(0, toMoney(b.depositPaid));
     const dbBalance = Math.max(0, toMoney(b.balanceDue));
     const ledgerSummaryUsable = hasUsableLedgerSummary(summary);
     const ledgerPaid = ledgerSummaryUsable ? Math.max(0, toMoney(summary?.total_paid)) : 0;
     const ledgerBalance = ledgerSummaryUsable ? toMoney(summary?.remaining_balance) : NaN;
     const ledgerCharges = ledgerSummaryUsable ? Math.max(0, toMoney(summary?.total_charges)) : 0;
+    const inferredLedgerTotal = ledgerSummaryUsable
+      ? Math.max(0, toMoney(ledgerPaid + Math.max(0, Number.isFinite(ledgerBalance) ? ledgerBalance : 0)))
+      : 0;
+    const total = Math.max(baseTotal, ledgerCharges, inferredLedgerTotal);
     const paid = Math.max(dbPaid, ledgerPaid);
     const isReservationStage = [
       "pending",
