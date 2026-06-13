@@ -11342,6 +11342,11 @@ function saveVehiclePricing(vehicleId) {
       showToast(`✓ Pricing saved for ${vehicleId}.`, 'success');
       if (status) { status.textContent = '✓ Saved'; status.style.color = 'var(--success)'; }
       setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+      // Keep in-memory rates in sync so updateManualPrice() reflects the new values immediately
+      VEHICLE_RATES[vehicleId] = {
+        perDay:  payload.daily_price  || 0,
+        perWeek: payload.weekly_price || 0,
+      };
     })
     .catch((err) => {
       showToast('Error: ' + err.message, 'error');
