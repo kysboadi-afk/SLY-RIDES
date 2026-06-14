@@ -3156,6 +3156,51 @@
   </div>
 </div>
 
+<!-- ── Create / Edit Payment Plan Modal ──────────────────────────────── -->
+<div class="modal-overlay" id="create-plan-modal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title" id="cp-modal-title">New Payment Plan</div>
+      <button class="modal-close" onclick="closeModal('create-plan-modal')">✕</button>
+    </div>
+    <input type="hidden" id="cp-plan-id">
+    <div class="form-grid">
+      <div class="form-group full" id="cp-booking-group">
+        <label class="form-label">Booking ID *</label>
+        <input type="text" class="form-input" id="cp-booking-id" placeholder="e.g. BK-1029" maxlength="200">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Customer Email *</label>
+        <input type="email" class="form-input" id="cp-email" placeholder="renter@example.com" maxlength="200">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Total Amount ($) *</label>
+        <input type="number" class="form-input" id="cp-total" min="0.01" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Number of Installments *</label>
+        <input type="number" class="form-input" id="cp-installments" min="2" max="24" step="1" placeholder="2–24">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Days Between Installments *</label>
+        <input type="number" class="form-input" id="cp-interval" min="1" max="90" step="1" placeholder="1–90" value="30">
+      </div>
+      <div class="form-group" id="cp-due-group">
+        <label class="form-label">Next Due Date</label>
+        <input type="date" class="form-input" id="cp-next-due">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Notes (optional)</label>
+        <textarea class="form-textarea" id="cp-notes" placeholder="Any notes about this plan…" style="min-height:64px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('create-plan-modal')">Cancel</button>
+      <button class="btn btn-primary" id="cp-submit-btn" onclick="submitPlanModal()">Create Plan</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Edit Ledger Entry Modal ───────────────────────────────────────── -->
 <div class="modal-overlay" id="edit-ledger-modal">
   <div class="modal" style="max-width:560px;">
@@ -16620,29 +16665,19 @@ function openCreatePlanFromLedger() {
 }
 
 function openCreatePlanModal(prefillBookingId, prefillTotal) {
-  const booking = prompt('Booking ID for the payment plan:', prefillBookingId || '');
-  if (!booking) return;
-  const email = prompt('Customer email:');
-  if (!email) return;
-  const defaultTotal = prefillTotal != null ? prefillTotal.toFixed(2) : '0';
-  const total = parseFloat(prompt('Total amount ($):', defaultTotal) || '0');
-  if (!total || total <= 0) { showToast('Invalid amount.', 'error'); return; }
-  const inst = parseInt(prompt('Number of installments (2–24):') || '0', 10);
-  if (!inst || inst < 2 || inst > 24) { showToast('Installments must be 2–24.', 'error'); return; }
-  const interval = parseInt(prompt('Days between installments (1–90):') || '30', 10);
-
-  apiPost('/api/payment-plan', {
-    secret: adminSessionToken,
-    action: 'create',
-    booking_id: booking.trim(),
-    customer_email: email.trim(),
-    total_amount: total,
-    installments: inst,
-    interval_days: interval,
-  }).then(() => {
-    showToast('Payment plan created.', 'success');
-    loadPaymentPlans();
-  }).catch((err) => showToast('Failed: ' + err.message, 'error'));
+  document.getElementById('cp-plan-id').value = '';
+  document.getElementById('cp-modal-title').textContent = 'New Payment Plan';
+  document.getElementById('cp-submit-btn').textContent = 'Create Plan';
+  document.getElementById('cp-booking-group').style.display = '';
+  document.getElementById('cp-due-group').style.display = 'none';
+  document.getElementById('cp-booking-id').value = prefillBookingId || '';
+  document.getElementById('cp-email').value = '';
+  document.getElementById('cp-total').value = prefillTotal != null ? prefillTotal.toFixed(2) : '';
+  document.getElementById('cp-installments').value = '';
+  document.getElementById('cp-interval').value = '30';
+  document.getElementById('cp-next-due').value = '';
+  document.getElementById('cp-notes').value = '';
+  openModal('create-plan-modal');
 }
 
 async function editPaymentPlan(planId) {
@@ -16651,51 +16686,81 @@ async function editPaymentPlan(planId) {
     const plan = data?.plans?.[0];
     if (!plan) throw new Error('Payment plan not found');
 
-    const emailInput = prompt('Customer email:', plan.customer_email || '');
-    if (emailInput === null) return;
-    const email = emailInput.trim();
-    if (!email) { showToast('Customer email is required.', 'error'); return; }
-
-    const totalInput = prompt('Total amount ($):', Number(plan.total_amount || 0).toFixed(2));
-    if (totalInput === null) return;
-    const total = parseFloat(totalInput);
-    if (!Number.isFinite(total) || total <= 0) { showToast('Invalid amount.', 'error'); return; }
-
-    const installmentsInput = prompt('Number of installments (2–24):', String(plan.installments || ''));
-    if (installmentsInput === null) return;
-    const installments = parseInt(installmentsInput, 10);
-    if (!Number.isInteger(installments) || installments < 2 || installments > 24) { showToast('Installments must be 2–24.', 'error'); return; }
-
-    const intervalInput = prompt('Days between installments (1–90):', String(plan.interval_days || '30'));
-    if (intervalInput === null) return;
-    const interval = parseInt(intervalInput, 10);
-    if (!Number.isInteger(interval) || interval < 1 || interval > 90) { showToast('Interval must be 1–90 days.', 'error'); return; }
-
+    document.getElementById('cp-plan-id').value = planId;
+    document.getElementById('cp-modal-title').textContent = 'Edit Payment Plan';
+    document.getElementById('cp-submit-btn').textContent = 'Save Changes';
+    document.getElementById('cp-booking-group').style.display = 'none';
+    document.getElementById('cp-due-group').style.display = '';
+    document.getElementById('cp-email').value = plan.customer_email || '';
+    document.getElementById('cp-total').value = Number(plan.total_amount || 0).toFixed(2);
+    document.getElementById('cp-installments').value = String(plan.installments || '');
+    document.getElementById('cp-interval').value = String(plan.interval_days || '30');
     const dueDateDefault = plan.next_due_date ? String(plan.next_due_date).slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const nextDueInput = prompt('Next due date (YYYY-MM-DD):', dueDateDefault);
-    if (nextDueInput === null) return;
-    const nextDue = nextDueInput.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDue)) { showToast('Next due date must use YYYY-MM-DD.', 'error'); return; }
+    document.getElementById('cp-next-due').value = dueDateDefault;
+    document.getElementById('cp-notes').value = plan.notes || '';
+    openModal('create-plan-modal');
+  } catch (err) {
+    showToast('Failed to load plan: ' + err.message, 'error');
+  }
+}
 
-    const notesInput = prompt('Notes (optional):', plan.notes || '');
-    if (notesInput === null) return;
+async function submitPlanModal() {
+  const planId = document.getElementById('cp-plan-id').value;
+  const isEdit = !!planId;
 
-    await apiPost('/api/payment-plan', {
-      secret: adminSessionToken,
-      action: 'update',
-      plan_id: planId,
-      customer_email: email,
-      total_amount: total,
-      installments,
-      interval_days: interval,
-      next_due_date: nextDue,
-      notes: notesInput.trim() || null,
-    });
+  const email = document.getElementById('cp-email').value.trim();
+  if (!email) { showToast('Customer email is required.', 'error'); return; }
 
-    showToast('Payment plan updated.', 'success');
+  const total = parseFloat(document.getElementById('cp-total').value);
+  if (!Number.isFinite(total) || total <= 0) { showToast('Invalid amount.', 'error'); return; }
+
+  const installments = parseInt(document.getElementById('cp-installments').value, 10);
+  if (!Number.isInteger(installments) || installments < 2 || installments > 24) { showToast('Installments must be 2–24.', 'error'); return; }
+
+  const interval = parseInt(document.getElementById('cp-interval').value, 10);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 90) { showToast('Interval must be 1–90 days.', 'error'); return; }
+
+  const notes = document.getElementById('cp-notes').value.trim() || null;
+  const btn = document.getElementById('cp-submit-btn');
+  btn.disabled = true;
+
+  try {
+    if (isEdit) {
+      const nextDue = document.getElementById('cp-next-due').value.trim();
+      if (nextDue && !/^\d{4}-\d{2}-\d{2}$/.test(nextDue)) { showToast('Next due date must use YYYY-MM-DD.', 'error'); btn.disabled = false; return; }
+      await apiPost('/api/payment-plan', {
+        secret: adminSessionToken,
+        action: 'update',
+        plan_id: planId,
+        customer_email: email,
+        total_amount: total,
+        installments,
+        interval_days: interval,
+        next_due_date: nextDue || undefined,
+        notes,
+      });
+      showToast('Payment plan updated.', 'success');
+    } else {
+      const booking = document.getElementById('cp-booking-id').value.trim();
+      if (!booking) { showToast('Booking ID is required.', 'error'); btn.disabled = false; return; }
+      await apiPost('/api/payment-plan', {
+        secret: adminSessionToken,
+        action: 'create',
+        booking_id: booking,
+        customer_email: email,
+        total_amount: total,
+        installments,
+        interval_days: interval,
+        notes,
+      });
+      showToast('Payment plan created.', 'success');
+    }
+    closeModal('create-plan-modal');
     loadPaymentPlans();
   } catch (err) {
-    showToast('Failed to update plan: ' + err.message, 'error');
+    showToast('Failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
