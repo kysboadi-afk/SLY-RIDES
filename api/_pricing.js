@@ -361,18 +361,20 @@ export async function getVehiclePricing(supabase, vehicleId) {
 
 /**
  * Compute the rental cost from a vehicle_pricing row and a day count.
- * Applies flat tier pricing (no greedy chain):
- *   7 days  → weekly_price
- *   14 days → biweekly_price
- *   ≥28 days → monthly_price
- *   else    → daily_price × days
+ * Applies greedy tier pricing (monthly → biweekly → weekly → daily remainder),
+ * matching the car.js booking page display so Stripe always charges exactly what
+ * the renter sees before paying.
  *
- * When a tier price is null (e.g. only weekly was set but no daily), a daily
- * rate is derived from the weekly price so that all day counts remain bookable.
+ * A tier is skipped when its price is $0 or null (meaning "not offered"); the
+ * next lower tier is used instead — it does NOT mean the rental is free.
+ *
+ * When daily_price is absent or $0, a daily rate is derived from weekly_price so
+ * that all day counts remain bookable.
  *
  * @param {object} pricing  - vehicle_pricing row from getVehiclePricing()
  * @param {number} days     - number of rental days (min 1)
- * @returns {number} rental cost in dollars (pre-tax, no DPP)
+ * @returns {number|null} rental cost in dollars (pre-tax, no DPP), or null when
+ *                        no usable rate is available
  */
 export function computeAmountFromPricing(pricing, days) {
   // Coerce all values to numbers — Supabase TEXT columns and string payloads are
@@ -387,20 +389,34 @@ export function computeAmountFromPricing(pricing, days) {
   const m  = toFinite(pricing.monthly_price);
   const d  = toFinite(pricing.daily_price);
 
-  // Only apply a tier when its price is strictly positive (> 0).
-  // A price of $0 means "this tier is not offered" and falls through to
-  // daily × days — it does NOT mean the rental is free.
-  if (days === 7  && w  != null && w  > 0) return w;
-  if (days === 14 && bw != null && bw > 0) return bw;
-  if (days >= 28  && m  != null && m  > 0) return m;
   // Derive daily_price from weekly when it is not explicitly stored, or when
-  // daily_price is 0 (consistent with the > 0 tier checks above — $0 means
-  // "this rate is not configured", not "free").
-  // deriveDaily(w) is guaranteed > 0 when w > 0 (it's round(w/7 * 100)/100),
-  // so the explicit positivity check on w ensures the derived rate is also valid.
+  // daily_price is 0 ($0 means "not configured", not "free").
   const derived = (w != null && w > 0) ? deriveDaily(w) : null;
   const daily = (d != null && d > 0) ? d : derived;
-  return daily != null ? Math.round(daily * days * 100) / 100 : null;
+  if (!daily) return null;
+
+  // Greedy chain: monthly → biweekly → weekly → daily remainder.
+  // Each tier is applied only when its price is strictly positive (> 0).
+  let remaining = Math.max(1, days);
+  let cost = 0;
+
+  if (m != null && m > 0 && remaining >= 30) {
+    const months = Math.floor(remaining / 30);
+    cost += months * m;
+    remaining -= months * 30;
+  }
+  if (bw != null && bw > 0 && remaining >= 14) {
+    const periods = Math.floor(remaining / 14);
+    cost += periods * bw;
+    remaining -= periods * 14;
+  }
+  if (w != null && w > 0 && remaining >= 7) {
+    const weeks = Math.floor(remaining / 7);
+    cost += weeks * w;
+    remaining -= weeks * 7;
+  }
+  cost += remaining * daily;
+  return Math.round(cost * 100) / 100;
 }
 
 /**
