@@ -252,14 +252,61 @@ test("computeAmountFromPricing: zero weekly_price is NOT used — falls through 
   assert.equal(computeAmountFromPricing(pricing, 7), 60 * 7);
 });
 
-test("computeAmountFromPricing: zero biweekly_price is NOT used — falls through to daily × days", () => {
+test("computeAmountFromPricing: zero biweekly_price is NOT used — falls through to weekly", () => {
+  // When biweekly=0 but weekly=350, greedy uses 2 × weekly ($700) not daily × 14 ($840).
+  const pricing = { daily_price: 60, weekly_price: 350, biweekly_price: 0, monthly_price: null };
+  assert.equal(computeAmountFromPricing(pricing, 14), 350 * 2);
+});
+
+test("computeAmountFromPricing: zero biweekly_price and zero weekly_price — falls through to daily × days", () => {
   const pricing = { daily_price: 60, weekly_price: 0, biweekly_price: 0, monthly_price: null };
   assert.equal(computeAmountFromPricing(pricing, 14), 60 * 14);
 });
 
-test("computeAmountFromPricing: zero monthly_price is NOT used — falls through to daily × days", () => {
+test("computeAmountFromPricing: zero monthly_price is NOT used — falls through to biweekly", () => {
+  // When monthly=0 but biweekly=650, greedy uses 2 × biweekly ($1300) not daily × 28 ($1680).
+  const pricing = { daily_price: 60, weekly_price: 350, biweekly_price: 650, monthly_price: 0 };
+  assert.equal(computeAmountFromPricing(pricing, 28), 650 * 2);
+});
+
+test("computeAmountFromPricing: zero monthly_price, zero biweekly_price — falls through to weekly", () => {
+  const pricing = { daily_price: 60, weekly_price: 350, biweekly_price: 0, monthly_price: 0 };
+  assert.equal(computeAmountFromPricing(pricing, 28), 350 * 4);
+});
+
+test("computeAmountFromPricing: zero monthly_price, zero biweekly_price, zero weekly_price — falls through to daily × days", () => {
   const pricing = { daily_price: 60, weekly_price: 0, biweekly_price: 0, monthly_price: 0 };
   assert.equal(computeAmountFromPricing(pricing, 28), 60 * 28);
+});
+
+// ─── Greedy (non-boundary) day counts ──────────────────────────────────────
+// These cases differ from flat-tier and verify Stripe matches the booking page.
+
+test("computeAmountFromPricing: 8 days = 1 week + 1 day (greedy)", () => {
+  const pricing = { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 };
+  assert.equal(computeAmountFromPricing(pricing, 8), 350 + 55);
+});
+
+test("computeAmountFromPricing: 10 days = 1 week + 3 days (greedy)", () => {
+  const pricing = { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 };
+  assert.equal(computeAmountFromPricing(pricing, 10), 350 + 55 * 3);
+});
+
+test("computeAmountFromPricing: 15 days = 1 biweekly + 1 day (greedy)", () => {
+  const pricing = { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 };
+  assert.equal(computeAmountFromPricing(pricing, 15), 650 + 55);
+});
+
+test("computeAmountFromPricing: 21 days = 1 biweekly + 1 weekly (greedy)", () => {
+  // Greedy: biweekly tier applied first ($650 for 14 days), then weekly ($350 for 7 days) = $1000.
+  // This is cheaper for the renter than 3 × weekly ($1050), confirming greedy is correct.
+  const pricing = { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 };
+  assert.equal(computeAmountFromPricing(pricing, 21), 650 + 350);
+});
+
+test("computeAmountFromPricing: 31 days = 1 monthly + 1 day (greedy)", () => {
+  const pricing = { daily_price: 55, weekly_price: 350, biweekly_price: 650, monthly_price: 1300 };
+  assert.equal(computeAmountFromPricing(pricing, 31), 1300 + 55);
 });
 
 test("computeAmountFromPricing: string prices are coerced to numbers", () => {
