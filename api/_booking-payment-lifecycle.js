@@ -91,7 +91,7 @@ export function deriveBookingPaymentLifecycle(input = {}) {
     isActiveRental,
     isOverdue,
     hasPaymentPlan,
-    canPayRemainingOnline: hasOutstandingBalance && !isManualPickup && lifecycleState !== "completed",
+    canPayRemainingOnline: hasOutstandingBalance && lifecycleState !== "completed",
     isPaidInFull: lifecycleState === "completed",
   };
 }

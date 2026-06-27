@@ -691,7 +691,7 @@
       hasPaymentPlan,
       isReservationStage,
       isPaidInFull: lifecycleState === "completed",
-      canPayRemainingOnline: hasOutstandingBalance && !isManualPickup && lifecycleState !== "completed",
+      canPayRemainingOnline: hasOutstandingBalance && lifecycleState !== "completed",
     };
   }
 
@@ -723,18 +723,18 @@
         bannerText: "",
       },
       deposit_paid: {
-        paymentBadgeLabel: lifecycle.isManualPickup ? "Deposit Paid / Balance Due at Pickup" : "Deposit Paid",
+        paymentBadgeLabel: lifecycle.isManualPickup ? "Deposit Paid / Balance Due" : "Deposit Paid",
         paymentBadgeClass: "badge-pending",
         paymentChipLabel: lifecycle.isManualPickup
-          ? "Reservation Deposit Paid ✅ • Remaining Balance Due at Pickup"
+          ? `Reservation Deposit Paid ✅ • ${fmt(normalizedBalance)} remaining`
           : `Deposit Paid ✅ • ${fmt(normalizedBalance)} remaining`,
         balanceNote: lifecycle.isManualPickup
-          ? "Reservation deposit paid. Remaining balance is due at pickup."
+          ? "Reservation deposit paid. Remaining balance is still due — you can pay online below."
           : "Deposit recorded. Remaining balance is still due on this booking.",
         progressPaidLabel: "Reservation Deposit Paid ✅",
-        progressPctLabel: lifecycle.isManualPickup ? "Remaining balance due at pickup" : `${fmt(normalizedBalance)} remaining`,
+        progressPctLabel: lifecycle.isManualPickup ? `${fmt(normalizedBalance)} remaining` : `${fmt(normalizedBalance)} remaining`,
         bannerText: lifecycle.isManualPickup
-          ? "Your reservation deposit has been received. Remaining balance is collected at pickup."
+          ? "Your reservation deposit has been received. Use the payment actions below to pay the remaining balance."
           : "Your reservation deposit has been received. Remaining balance is still due on this booking.",
       },
       payment_plan_active: {
@@ -747,13 +747,13 @@
         bannerText: "A partial payment has been received. Remaining balance is still due.",
       },
       pickup_due: {
-        paymentBadgeLabel: "Balance Due at Pickup",
+        paymentBadgeLabel: "Balance Due",
         paymentBadgeClass: "badge-review",
-        paymentChipLabel: "Payment due at pickup",
-        balanceNote: "Payment for this booking is collected in person at pickup.",
+        paymentChipLabel: `${fmt(normalizedBalance)} due`,
+        balanceNote: "Use the payment actions below to pay the remaining balance on this booking.",
         progressPaidLabel: normalizedPaid > 0 ? `${fmt(normalizedPaid)} paid` : "$0 paid",
-        progressPctLabel: "Payment due at pickup",
-        bannerText: "Remaining balance is collected at pickup.",
+        progressPctLabel: `${fmt(normalizedBalance)} remaining`,
+        bannerText: "Remaining balance is due on this booking. Pay below.",
       },
       reservation_pending: {
         paymentBadgeLabel: "Reservation Pending Payment",
