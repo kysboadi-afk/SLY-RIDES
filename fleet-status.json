@@ -13,7 +13,8 @@
     "rental_status": "maintenance"
   },
   "camry2013": {
-    "available": false
+    "available": false,
+    "rental_status": "maintenance"
   },
   "fusion2017": {
     "available": false
