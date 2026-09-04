@@ -9,7 +9,8 @@
     "available": true
   },
   "camry": {
-    "available": true
+    "available": false,
+    "rental_status": "maintenance"
   },
   "camry2013": {
     "available": false
